@@ -8,7 +8,7 @@ import           Prelude                 hiding ( fail )
 
 data Token = Ident String
            | KeyWord String
-           | Number Int  -- Change Number type if you work with something other than Int
+           | Number Integer  -- Change Number type if you work with something other than Int
            deriving (Show, Eq)
 
 tokenize :: String -> [Token]
@@ -92,10 +92,10 @@ parseKeyWord = keywords
         (['A' .. 'Z'] ++ ['a' .. 'z'] ++ ['0' .. '9'] ++ ['_'])
     )
 
-parseNumber :: Parser String Int
+parseNumber :: Parser String Integer
 parseNumber =
     (char '-' $> negate <|> (char '+' <|> pure '+') $> id)
-        <*> (   pure (foldl (\rest digit -> rest * 10 + digitToInt digit) 0)
+        <*> (   pure (foldl (\rest digit -> rest * 10 + toInteger (digitToInt digit)) 0)
             <*> (   pure (:)
                 <*> foldr ((<|>) . char) fail ['1' .. '9']
                 <*> many
@@ -103,6 +103,6 @@ parseNumber =
                         *> foldr ((<|>) . char) fail ['0' .. '9']
                         )
                 )
-            <|> pure digitToInt
+            <|> pure (toInteger . digitToInt)
             <*> foldr ((<|>) . char) fail ['0' .. '9']
             )

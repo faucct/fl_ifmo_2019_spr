@@ -17,3 +17,4 @@ main = do
   runTokenizer "   "
   runTokenizer " -0 123 BEGIN foo"
   runTokenizer "defined"
+  runTokenizer "12345678901234567890"
