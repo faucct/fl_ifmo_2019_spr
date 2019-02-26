@@ -29,8 +29,8 @@ parseInteger =
                     )
             )
 
-parseList elem delim lbr rbr =
-    lbr
+parseList elem delim lbr rbr minimumNumberElems = do
+    list <- lbr
         *>  rbr
         *>  pure []
         <|> lbr
@@ -38,9 +38,8 @@ parseList elem delim lbr rbr =
         <*> elem
         <*> many (delim *> elem)
         <*  rbr
-
-parseNotEmptyList elem delim lbr rbr =
-    lbr *> pure (:) <*> elem <*> many (delim *> elem) <* rbr
+    guard $ length list >= minimumNumberElems
+    return list
 
 -- Top level function: parses input string, checks that it is an automaton, and then returns it.
 -- Should return Nothing, if there is a syntax error or the automaton is not a correct automaton.
@@ -54,16 +53,14 @@ parseNotEmptyList elem delim lbr rbr =
 parseAutomaton = fmap snd . runParser
     (   success Automaton
     <*> (   Set.fromList
-        <$> parseList parseInteger (char ',') (char '<') (char '>')
+        <$> parseList parseInteger (char ',') (char '<') (char '>') 0
         )
-    <*> (Set.fromList <$> parseNotEmptyList parseInteger
-                                            (char ',')
-                                            (char '<')
-                                            (char '>')
+    <*> (   Set.fromList
+        <$> parseList parseInteger (char ',') (char '<') (char '>') 1
         )
     <*> (char '<' *> parseInteger <* char '>')
     <*> (   Set.fromList
-        <$> parseList parseInteger (char ',') (char '<') (char '>')
+        <$> parseList parseInteger (char ',') (char '<') (char '>') 0
         )
     <*> (Map.fromList <$> parseList
             (   char '('
@@ -76,6 +73,7 @@ parseAutomaton = fmap snd . runParser
             (char ',')
             (char '<')
             (char '>')
+            0
         )
     )
 
@@ -83,17 +81,16 @@ parseAutomaton' =
     fmap snd
         . (runParser $ do
               sigma <- Set.fromList
-                  <$> parseList parseInteger (char ',') (char '<') (char '>')
-              states <- Set.fromList <$> parseNotEmptyList parseInteger
-                                                           (char ',')
-                                                           (char '<')
-                                                           (char '>')
+                  <$> parseList parseInteger (char ',') (char '<') (char '>') 0
+              states <- Set.fromList
+                  <$> parseList parseInteger (char ',') (char '<') (char '>') 1
               initState <- char '<' *> parseInteger <* char '>'
               guard $ Set.member initState states
               termStates <- Set.fromList <$> parseList parseInteger
                                                        (char ',')
                                                        (char '<')
                                                        (char '>')
+                                                       0
               guard $ all (`Set.member` states) termStates
               delta <- parseList
                   (   char '('
@@ -106,6 +103,7 @@ parseAutomaton' =
                   (char ',')
                   (char '<')
                   (char '>')
+                  0
               guard $ all
                   (\((from, symbol), to) ->
                       Set.member from states
