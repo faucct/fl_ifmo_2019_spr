@@ -19,18 +19,12 @@ data Automaton s q = Automaton { sigma     :: Set s
                                , delta     :: Map (q, s) q
                                }
 
-parseInteger :: Parser String Integer
-parseInteger =
-    char '0'
-        *>  success 0
-        <|> pure read
-        <*> (   pure (:)
-            <*> foldr ((<|>) . char) failure ['1' .. '9']
-            <*> many
-                    (  (char '_' <|> pure '_')
-                    *> foldr ((<|>) . char) failure ['0' .. '9']
-                    )
-            )
+parseElement = some
+    (Parser $ \string -> case string of
+        (symbol : rest) | not (isSpace symbol) && notElem symbol "(),<>" ->
+            Just (rest, symbol)
+        _ -> Nothing
+    )
 
 parseSpace = Parser $ \string -> case string of
     (char : rest) | isSpace char -> Just (rest, char)
@@ -64,30 +58,30 @@ parseList elem delim lbr rbr minimumNumberElems = do
 parseAutomaton = fmap snd . runParser
     (   success Automaton
     <*> (   Set.fromList
-        <$> parseList parseInteger (char ',') (char '<') (char '>') 0
+        <$> parseList parseElement (char ',') (char '<') (char '>') 0
         )
     <*> (   Set.fromList
-        <$> parseList parseInteger (char ',') (char '<') (char '>') 1
+        <$> parseList parseElement (char ',') (char '<') (char '>') 1
         )
-    <*> (char '<' *> parseInteger <* char '>')
+    <*> (char '<' *> parseElement <* char '>')
     <*> (   Set.fromList
-        <$> parseList parseInteger (char ',') (char '<') (char '>') 0
+        <$> parseList parseElement (char ',') (char '<') (char '>') 0
         )
     <*> (Map.fromList <$> parseList
             (   char '('
             <*  many parseSpace
             *>  pure (,)
             <*> (   pure (,)
-                <*> parseInteger
+                <*> parseElement
                 <*  many parseSpace
                 <*  char ','
                 <*  many parseSpace
-                <*> parseInteger
+                <*> parseElement
                 <*  many parseSpace
                 )
             <*  char ','
             <*  many parseSpace
-            <*> parseInteger
+            <*> parseElement
             <*  many parseSpace
             <*  char ')'
             )
@@ -102,12 +96,12 @@ parseAutomaton' =
     fmap snd
         . (runParser $ do
               sigma <- Set.fromList
-                  <$> parseList parseInteger (char ',') (char '<') (char '>') 0
+                  <$> parseList parseElement (char ',') (char '<') (char '>') 0
               states <- Set.fromList
-                  <$> parseList parseInteger (char ',') (char '<') (char '>') 1
-              initState <- char '<' *> parseInteger <* char '>'
+                  <$> parseList parseElement (char ',') (char '<') (char '>') 1
+              initState <- char '<' *> parseElement <* char '>'
               guard $ Set.member initState states
-              termStates <- Set.fromList <$> parseList parseInteger
+              termStates <- Set.fromList <$> parseList parseElement
                                                        (char ',')
                                                        (char '<')
                                                        (char '>')
@@ -118,16 +112,16 @@ parseAutomaton' =
                   <*  many parseSpace
                   *>  pure (,)
                   <*> (   pure (,)
-                      <*> parseInteger
+                      <*> parseElement
                       <*  many parseSpace
                       <*  char ','
                       <*  many parseSpace
-                      <*> parseInteger
+                      <*> parseElement
                       <*  many parseSpace
                       )
                   <*  char ','
                   <*  many parseSpace
-                  <*> parseInteger
+                  <*> parseElement
                   <*  many parseSpace
                   <*  char ')'
                   )
