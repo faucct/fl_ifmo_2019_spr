@@ -1,8 +1,11 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Automaton where
 
 import           Combinators
 import           Control.Applicative
 import           Control.Monad
+import           Data.Char
 import qualified Data.Map.Lazy                 as Map
 import qualified Data.Set                      as Set
 
@@ -29,14 +32,22 @@ parseInteger =
                     )
             )
 
+parseSpace = Parser $ \string -> case string of
+    (char : rest) | isSpace char -> Just (rest, char)
+    _                            -> Nothing
+
 parseList elem delim lbr rbr minimumNumberElems = do
-    list <- lbr
+    list <-
+        lbr
+        <*  many parseSpace
         *>  rbr
         *>  pure []
         <|> lbr
+        <*  many parseSpace
         *>  pure (:)
         <*> elem
-        <*> many (delim *> elem)
+        <*  many parseSpace
+        <*> many (delim *> many parseSpace *> elem <* many parseSpace)
         <*  rbr
     guard $ length list >= minimumNumberElems
     return list
@@ -64,10 +75,20 @@ parseAutomaton = fmap snd . runParser
         )
     <*> (Map.fromList <$> parseList
             (   char '('
+            <*  many parseSpace
             *>  pure (,)
-            <*> (pure (,) <*> parseInteger <* char ',' <*> parseInteger)
+            <*> (   pure (,)
+                <*> parseInteger
+                <*  many parseSpace
+                <*  char ','
+                <*  many parseSpace
+                <*> parseInteger
+                <*  many parseSpace
+                )
             <*  char ','
+            <*  many parseSpace
             <*> parseInteger
+            <*  many parseSpace
             <*  char ')'
             )
             (char ',')
@@ -94,10 +115,20 @@ parseAutomaton' =
               guard $ all (`Set.member` states) termStates
               delta <- parseList
                   (   char '('
+                  <*  many parseSpace
                   *>  pure (,)
-                  <*> (pure (,) <*> parseInteger <* char ',' <*> parseInteger)
+                  <*> (   pure (,)
+                      <*> parseInteger
+                      <*  many parseSpace
+                      <*  char ','
+                      <*  many parseSpace
+                      <*> parseInteger
+                      <*  many parseSpace
+                      )
                   <*  char ','
+                  <*  many parseSpace
                   <*> parseInteger
+                  <*  many parseSpace
                   <*  char ')'
                   )
                   (char ',')
