@@ -7,7 +7,7 @@ import           Automaton
 import           Combinators
 import           Text.Printf
 
-automatonInfo :: Automaton a b -> String
+automatonInfo :: Automaton String String -> String
 automatonInfo auto =
   let [dfa, nfa, complete, minimal] = map
         (\f -> if f auto then "yes" else "no")
@@ -22,7 +22,13 @@ automatonInfo auto =
 
 main :: IO ()
 main = do
-  print $ parseAutomaton "<0,1><1><1><1><(1,0,1)>"
+  let Right dfaAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1)>"
+  print $ isDFA dfaAutomaton
+  let Right epsilonAutomaton = parseAutomaton "<\\epsilon,0,1><1><1><1><(1,\\epsilon,1)>"
+  print $ isNFA epsilonAutomaton
+  print $ not $ isComplete epsilonAutomaton
+  let Right completeAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1),(1,1,1)>"
+  print $ isComplete completeAutomaton
   print
     $ lefts
     $ [ runParser

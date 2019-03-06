@@ -5,7 +5,11 @@ module Automaton where
 import           Combinators
 import           Control.Applicative
 import           Control.Monad
+import           Control.Monad.Identity
+import           Control.Monad.State
 import           Data.Char
+import           Data.Function
+import           Data.List
 import qualified Data.Map.Lazy                 as Map
 import qualified Data.Set                      as Set
 
@@ -16,7 +20,7 @@ data Automaton s q = Automaton { sigma     :: Set s
                                , states    :: Set q
                                , initState :: q
                                , termState :: Set q
-                               , delta     :: Map (q, s) q
+                               , delta     :: [((q, s), q)]
                                } deriving Show
 
 parseElement :: (Alternative err) => Parser String (err String) String
@@ -58,67 +62,66 @@ parseList elem delim lbr rbr minimumNumberElems = do
 parseAutomaton :: String -> Either [String] (Automaton String String)
 parseAutomaton =
     fmap snd
-    . (runParser $ do
-          sigma <- Set.fromList
-              <$> parseList parseElement (char ',') (char '<') (char '>') 0
-          states <- Set.fromList
-              <$> parseList parseElement (char ',') (char '<') (char '>') 1
-          initState <- char '<' *> parseElement <* char '>'
-          guard $ Set.member initState states
-          termStates <- Set.fromList <$> parseList parseElement
-                                                   (char ',')
-                                                   (char '<')
-                                                   (char '>')
-                                                   0
-          guard $ all (`Set.member` states) termStates
-          delta <- parseList
-              (   char '('
-              <*  many parseSpace
-              *>  pure (,)
-              <*> (   pure (,)
-                  <*> parseElement
+        . (runParser $ do
+              sigma <- Set.fromList
+                  <$> parseList parseElement (char ',') (char '<') (char '>') 0
+              states <- Set.fromList
+                  <$> parseList parseElement (char ',') (char '<') (char '>') 1
+              initState <- char '<' *> parseElement <* char '>'
+              guard $ Set.member initState states
+              termStates <- Set.fromList <$> parseList parseElement
+                                                       (char ',')
+                                                       (char '<')
+                                                       (char '>')
+                                                       0
+              guard $ all (`Set.member` states) termStates
+              delta <- parseList
+                  (   char '('
                   <*  many parseSpace
+                  *>  pure (,)
+                  <*> (   pure (,)
+                      <*> parseElement
+                      <*  many parseSpace
+                      <*  char ','
+                      <*  many parseSpace
+                      <*> parseElement
+                      <*  many parseSpace
+                      )
                   <*  char ','
                   <*  many parseSpace
                   <*> parseElement
                   <*  many parseSpace
+                  <*  char ')'
                   )
-              <*  char ','
-              <*  many parseSpace
-              <*> parseElement
-              <*  many parseSpace
-              <*  char ')'
-              )
-              (char ',')
-              (char '<')
-              (char '>')
-              0
-          guard $ all
-              (\((from, symbol), to) ->
-                  Set.member from states
-                      && Set.member symbol sigma
-                      && Set.member to states
-              )
-              delta
-          return $ Automaton sigma
-                             states
-                             initState
-                             termStates
-                             (Map.fromList delta)
-      )
+                  (char ',')
+                  (char '<')
+                  (char '>')
+                  0
+              guard $ all
+                  (\((from, symbol), to) ->
+                      Set.member from states
+                          && Set.member symbol sigma
+                          && Set.member to states
+                  )
+                  delta
+              return $ Automaton sigma states initState termStates delta
+          )
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
-isDFA :: Automaton a b -> Bool
-isDFA = undefined
+isDFA :: Automaton String String -> Bool
+isDFA (Automaton _ _ _ _ delta) =
+    (all ((/= "\\epsilon") . snd . fst) delta)
+        && (all ((== 1) . length) $ groupBy ((==) `on` fst) delta)
 
 -- Checks if the automaton is nondeterministic (eps-transition or multiple transitions for a state and a symbol)
-isNFA :: Automaton a b -> Bool
-isNFA = undefined
+isNFA :: Automaton String String -> Bool
+isNFA = not . isDFA
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
-isComplete :: Automaton a b -> Bool 
-isComplete = undefined
+isComplete :: Automaton String String -> Bool
+isComplete automaton@(Automaton sigma states _ _ delta) =
+    isDFA automaton && length sigma * length states == length delta
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
 isMinimal :: Automaton a b -> Bool
-isMinimal = undefined
+isMinimal automaton = undefined
