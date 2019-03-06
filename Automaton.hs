@@ -17,18 +17,19 @@ data Automaton s q = Automaton { sigma     :: Set s
                                , initState :: q
                                , termState :: Set q
                                , delta     :: Map (q, s) q
-                               }
+                               } deriving Show
 
+parseElement :: (Alternative err) => Parser String (err String) String
 parseElement = some
     (Parser $ \string -> case string of
         (symbol : rest) | not (isSpace symbol) && notElem symbol "(),<>" ->
-            Just (rest, symbol)
-        _ -> Nothing
+            Right (rest, symbol)
+        _ -> Left $ pure "expected element"
     )
 
 parseSpace = Parser $ \string -> case string of
-    (char : rest) | isSpace char -> Just (rest, char)
-    _                            -> Nothing
+    (char : rest) | isSpace char -> Right (rest, char)
+    _                            -> Left empty
 
 parseList elem delim lbr rbr minimumNumberElems = do
     list <-
@@ -54,7 +55,7 @@ parseList elem delim lbr rbr minimumNumberElems = do
 -- * Any of the terminal states is not a state
 -- * Delta function is defined on not-a-state or not-a-symbol-from-sigma
 -- Pick appropriate types for s and q
-parseAutomaton :: String -> Either String (Automaton s q)
+parseAutomaton :: String -> Either [String] (Automaton String String)
 parseAutomaton =
     fmap snd
     . (runParser $ do
@@ -105,8 +106,6 @@ parseAutomaton =
                              termStates
                              (Map.fromList delta)
       )
-
-
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
 isDFA :: Automaton a b -> Bool

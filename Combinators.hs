@@ -79,6 +79,7 @@ not' (Parser parser) = Parser
     )
 
 -- Checks if the first character of the string is the one given
+char :: (Eq token, Show token, Applicative err) => token -> Parser [token] (err String) token
 char = token
 
 accept :: (Alternative err, Eq token, Show token) => [token] -> Parser [token] (err String) [token]

@@ -1,5 +1,6 @@
 module Main where
 
+import Data.List
 import System.Environment
 import Automaton
 import Text.Printf
@@ -11,25 +12,14 @@ automatonInfo auto =
 
 main :: IO ()
 main = do
-<<<<<<< HEAD
-  [fileName] <- getArgs
-  input <- readFile fileName
-  let a = parseAutomaton' input
-  putStrLn $ maybe "Not an automaton!" (const "Hurray! Correct automaton!") a
-||||||| merged common ancestors
-  [fileName] <- getArgs
-  input <- readFile fileName
-  let a = parseAutomaton input
-  putStrLn $ maybe "Not an automaton!" (const "Hurray! Correct automaton!") a
-=======
+  print $ parseAutomaton "<0,1><1><1><1><(1,0,1)>"
   fileNames <- getArgs
   mapM_
     (\fileName -> do
         input <- readFile fileName
         let a = parseAutomaton input
         putStrLn $ printf "Parsing %s\n" fileName
-        putStrLn $ either (printf "Not an automaton!\n%s") automatonInfo a
+        putStrLn $ either (printf "Not an automaton!\n%s" . intercalate "\n") automatonInfo a
         putStrLn ""
     ) 
     fileNames
->>>>>>> upstream/HW04
