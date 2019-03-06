@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 
@@ -6,6 +7,26 @@ module Combinators where
 import           Control.Applicative
 import           Data.Function                  ( on )
 import           Data.List                      ( groupBy )
+
+withLineAndColumn :: [Char] -> [((Int, Int), Char)]
+withLineAndColumn string = zip
+    (scanl
+        (\(line, column) symbol ->
+            if symbol == '\n' then (line + 1, 0) else (line, column + 1)
+        )
+        (0, 0)
+        string
+    )
+    string
+
+class TokenContainer token t where
+    getToken :: token -> t
+
+instance TokenContainer Char Char where
+    getToken = id
+
+instance TokenContainer ((Int, Int), Char) Char where
+    getToken = snd
 
 -- Parsing result is either an error message or some payload and a suffix of the input which is yet to be parsed
 newtype Parser str err ok = Parser { runParser :: str -> Either err (str, ok) }
@@ -33,20 +54,20 @@ instance Monad (Parser token err) where
     return = success
     (Parser p) >>= q = Parser $ \str -> case p str of
         Right (rest, a) | Parser q <- q a -> q rest
-        Left left -> Left left
+        Left left                         -> Left left
 
 -- Applicative sequence combinator
 instance Applicative (Parser token err) where
     pure x = Parser $ \s -> Right (s, x)
-    -- Default sequence combinator
-    -- If the first parser succeedes then the second parser is used
-    -- If the first does not succeed then the second one is never tried
-    -- The result is collected into a pair
+-- Default sequence combinator
+-- If the first parser succeedes then the second parser is used
+-- If the first does not succeed then the second one is never tried
+-- The result is collected into a pair
     Parser u <*> Parser v = Parser f      where
         f xs = case u xs of
             Right (xs', g) -> case v xs' of
                 Right (xs'', x) -> Right (xs'', g x)
-                Left left -> Left left
+                Left  left      -> Left left
             Left left -> Left left
 
 -- Applies a function to the parsing result, if parser succeedes
@@ -66,21 +87,45 @@ keywords kws = (if any null kws then success "" else failure empty) <|> foldr
     (groupBy ((==) `on` head) $ filter (not . null) kws)
 
 -- Checks if the first element of the input is the given token
-token :: (Eq token, Show token, Applicative err) => token -> Parser [token] (err String) token
+token
+    :: ( Eq token
+       , Show token
+       , Applicative err
+       , TokenContainer tokenContainer token
+       )
+    => token
+    -> Parser [tokenContainer] (err String) token
 token t = Parser $ \case
-    (t' : s') | t == t' -> Right (s', t)
-    _                   -> Left $ pure $ "expected token: " ++ show t
+    (t' : s') | t == getToken t' -> Right (s', t)
+    _                            -> Left $ pure $ "expected token: " ++ show t
 
-not' :: Applicative err => Parser parsed (err String) ok -> Parser parsed (err String) ()
+not'
+    :: Applicative err
+    => Parser parsed (err String) ok
+    -> Parser parsed (err String) ()
 not' (Parser parser) = Parser
     (\parsed -> case parser parsed of
-        Right _  -> Left $ pure $ "expected not to match"
-        Left _ -> Right (parsed, ())
+        Right _ -> Left $ pure $ "expected not to match"
+        Left  _ -> Right (parsed, ())
     )
 
 -- Checks if the first character of the string is the one given
-char :: (Eq token, Show token, Applicative err) => token -> Parser [token] (err String) token
+char
+    :: ( Eq token
+       , Show token
+       , Applicative err
+       , TokenContainer tokenContainer token
+       )
+    => token
+    -> Parser [tokenContainer] (err String) token
 char = token
 
-accept :: (Alternative err, Eq token, Show token) => [token] -> Parser [token] (err String) [token]
+accept
+    :: ( Alternative err
+       , Eq token
+       , Show token
+       , TokenContainer tokenContainer token
+       )
+    => [token]
+    -> Parser [tokenContainer] (err String) [token]
 accept = foldr ((<*>) . (pure (:) <*>) . token) (success [])
