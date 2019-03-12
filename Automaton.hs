@@ -100,7 +100,7 @@ parseAutomaton =
               guard $ all
                   (\((from, symbol), to) ->
                       Set.member from states
-                          && Set.member symbol sigma
+                          && (symbol == "\\epsilon" || Set.member symbol sigma)
                           && Set.member to states
                   )
                   delta

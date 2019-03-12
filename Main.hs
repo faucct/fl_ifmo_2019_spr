@@ -24,7 +24,7 @@ main :: IO ()
 main = do
   let Right dfaAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1)>"
   print $ isDFA dfaAutomaton
-  let Right epsilonAutomaton = parseAutomaton "<\\epsilon,0,1><1><1><1><(1,\\epsilon,1)>"
+  let Right epsilonAutomaton = parseAutomaton "<0,1><1><1><1><(1,\\epsilon,1)>"
   print $ isNFA epsilonAutomaton
   print $ not $ isComplete epsilonAutomaton
   let Right completeAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1),(1,1,1)>"
