@@ -115,7 +115,7 @@ isDFA (Automaton _ _ _ _ delta) =
 
 -- Checks if the automaton is nondeterministic (eps-transition or multiple transitions for a state and a symbol)
 isNFA :: Automaton String String -> Bool
-isNFA = not . isDFA
+isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
 isComplete :: Automaton String String -> Bool
