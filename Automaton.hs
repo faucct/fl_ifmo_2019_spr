@@ -111,7 +111,7 @@ parseAutomaton =
 isDFA :: Automaton String String -> Bool
 isDFA (Automaton _ _ _ _ delta) =
     (all ((/= "\\epsilon") . snd . fst) delta)
-        && (all ((== 1) . length) $ groupBy ((==) `on` fst) delta)
+        && (all ((== 1) . length) $ groupBy ((==) `on` (fst . fst)) delta)
 
 -- Checks if the automaton is nondeterministic (eps-transition or multiple transitions for a state and a symbol)
 isNFA :: Automaton String String -> Bool
@@ -119,8 +119,9 @@ isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
 isComplete :: Automaton String String -> Bool
-isComplete automaton@(Automaton sigma states _ _ delta) =
-    isDFA automaton && length sigma * length states == length delta
+isComplete automaton@(Automaton sigma states _ _ delta) = all
+    (\symbol -> all (\state -> any ((== (state, symbol)) . fst) delta) states)
+    sigma
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
 isMinimal :: Automaton a b -> Bool
