@@ -232,15 +232,34 @@ determinized automaton@(Automaton sigma states initialState terminalStates delta
                     $ Map.toList newTransitions
                     )
 
-closed automaton@(Automaton _ _ _ _ delta) = foldr
-    (\((from, symbol), to) automaton -> if symbol == "\\epsilon"
-        then mergeStates from to automaton
-        else automaton
-    )
-    automaton
-        { delta = filter (\((_, symbol), _) -> symbol /= "\\epsilon") delta
-        }
-    delta
+closed automaton@(Automaton sigma states initialState terminalStates delta) =
+    let
+        epsilonClosureDelta =
+            transitiveClosure
+                $ map (\((from, symbol), to) -> (from, to))
+                $ filter (\((from, symbol), to) -> symbol == "\\epsilon") delta
+        newTerminal = foldr
+            (\(from, to) newTerminal -> if elem to terminalStates
+                then Set.insert from newTerminal
+                else newTerminal
+            )
+            terminalStates
+            epsilonClosureDelta
+        newDelta =
+            filter (\((_, symbol), _) -> symbol /= "\\epsilon") $ nub $ foldr
+                (\(u, v) newDelta ->
+                    map (\((_, symbol), w) -> ((u, symbol), w))
+                        $  filter
+                               (\((from, symbol), _) ->
+                                   from == v && symbol == "\\epsilon"
+                               )
+                               delta
+                        ++ delta
+                )
+                delta
+                epsilonClosureDelta
+    in
+        Automaton sigma states initialState newTerminal newDelta
 
 minimalized automaton@(Automaton sigma states initialState terminalStates delta)
     = if isDFA automaton

@@ -46,7 +46,7 @@ main = do
 
   print
     $   (Automaton { sigma     = Set.fromList []
-                   , states    = Set.fromList ["a"]
+                   , states    = Set.fromList ["a", "b"]
                    , initState = "a"
                    , termState = Set.fromList ["a"]
                    , delta     = []
