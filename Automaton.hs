@@ -68,13 +68,12 @@ parseAutomaton =
               states <- Set.fromList
                   <$> parseList parseElement (char ',') (char '<') (char '>') 1
               initState <- char '<' *> parseElement <* char '>'
-              guard $ Set.member initState states
-              termStates <- Set.fromList <$> parseList parseElement
-                                                       (char ',')
-                                                       (char '<')
-                                                       (char '>')
-                                                       0
-              guard $ all (`Set.member` states) termStates
+              when (not $ Set.member initState states)
+                  $ fail "unknown initial state"
+              termStates <- Set.fromList
+                  <$> parseList parseElement (char ',') (char '<') (char '>') 0
+              when (not $ all (`Set.member` states) termStates)
+                  $ fail "unknown terminal state"
               delta <- parseList
                   (   char '('
                   <*  many parseSpace
@@ -97,13 +96,19 @@ parseAutomaton =
                   (char '<')
                   (char '>')
                   0
-              guard $ all
-                  (\((from, symbol), to) ->
-                      Set.member from states
-                          && (symbol == "\\epsilon" || Set.member symbol sigma)
-                          && Set.member to states
-                  )
-                  delta
+              when
+                      (not $ all
+                          (\((from, symbol), to) ->
+                              Set.member from states
+                                  && (  symbol
+                                     == "\\epsilon"
+                                     || Set.member symbol sigma
+                                     )
+                                  && Set.member to states
+                          )
+                          delta
+                      )
+                  $ fail "transition to unknown state"
               return $ Automaton sigma states initState termStates delta
           )
 
