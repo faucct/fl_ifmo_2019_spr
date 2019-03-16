@@ -22,6 +22,11 @@ automatonInfo auto =
 
 main :: IO ()
 main = do
+  let Left _ = parseAutomaton "<a><b><b><b><(b, a, b)> , <a>"
+  let Right notDFAAutomaton = parseAutomaton "<a,b><0,1,2,3,4,5><0><1,3,4,5><(0, a, 1), (1, a, 2), (2, a, 3), (3, a, 4), (4, a, 5), (5, a, 0),  (0, a, 2), (1, a, 3), (2, a, 4), (3, a, 5), (4, a, 0), (5, a, 1),  (0, b, 5), (5, b, 4), (4, b, 3), (3, b, 2), (2, b, 1), (1, b, 0)>"
+  print $ not $ isDFA notDFAAutomaton
+  let Right dfaAutomaton = parseAutomaton "<a, b><1, 2, 3><1><1,3><(1, a, 1), (1, b, 2), (2, b, 2), (2, a, 3), (3, a, 2), (3, b, 3)>"
+  print $ isDFA dfaAutomaton
   let Right notDFAAutomaton = parseAutomaton "<a, b><1, 2, 3><1><1,3><(1, a, 1), (2, b, 1), (1, b, 2), (2, b, 2), (2, a, 3), (3, a, 2), (3, b, 3)>"
   print $ not $ isDFA notDFAAutomaton
   let Right dfaAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1)>"

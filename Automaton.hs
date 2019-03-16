@@ -116,7 +116,10 @@ parseAutomaton =
 isDFA :: Automaton String String -> Bool
 isDFA (Automaton _ _ _ _ delta) =
     (all ((/= "\\epsilon") . snd . fst) delta)
-        && (all ((== 1) . length) $ groupBy ((==) `on` (fst . fst)) delta)
+    && (all ((== 1) . length) $ groupBy ((==) `on` fst) $ sortBy
+           (compare `on` fst)
+           delta
+       )
 
 -- Checks if the automaton is nondeterministic (eps-transition or multiple transitions for a state and a symbol)
 isNFA :: Automaton String String -> Bool
