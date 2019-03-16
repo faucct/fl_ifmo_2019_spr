@@ -109,6 +109,8 @@ parseAutomaton =
                           delta
                       )
                   $ fail "transition to unknown state"
+              Parser $ \input ->
+                  if all isSpace input then Right ("", ()) else Left [""]
               return $ Automaton sigma states initState termStates delta
           )
 
