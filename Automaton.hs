@@ -129,9 +129,14 @@ isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
 isComplete :: Automaton String String -> Bool
-isComplete automaton@(Automaton sigma states _ _ delta) = all
-    (\symbol -> all (\state -> any ((== (state, symbol)) . fst) delta) states)
-    sigma
+isComplete automaton@(Automaton sigma states _ _ delta) =
+    isDFA automaton
+        && all
+               (\symbol -> all
+                   (\state -> any ((== (state, symbol)) . fst) delta)
+                   states
+               )
+               sigma
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
 isMinimal :: Automaton a b -> Bool

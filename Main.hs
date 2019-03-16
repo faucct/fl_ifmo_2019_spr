@@ -31,7 +31,7 @@ main = do
   print $ not $ isDFA notDFAAutomaton
   let Right dfaAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1)>"
   print $ isDFA dfaAutomaton
-  let Right epsilonAutomaton = parseAutomaton "<0,1><1><1><1><(1,\\epsilon,1)>"
+  let Right epsilonAutomaton = parseAutomaton "<a><b><b><b><(b, a, b), (b, \\epsilon, b)>"
   print $ isNFA epsilonAutomaton
   print $ not $ isComplete epsilonAutomaton
   let Right completeAutomaton = parseAutomaton "<0,1><1><1><1><(1,0,1),(1,1,1)>"
