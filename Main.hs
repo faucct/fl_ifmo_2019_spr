@@ -116,6 +116,7 @@ main = do
           $ withLineAndColumn "foo\nwtf"
       ]
   fileNames <- getArgs
+  let checkMin auto = isMinimal $ minimalized $ determinized $ closed auto
   mapM_
     (\fileName -> do
       input <- readFile fileName

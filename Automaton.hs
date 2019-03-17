@@ -109,7 +109,7 @@ parseAutomaton =
           )
 
 -- Checks if the automaton is deterministic (only one transition for each state and each input symbol)
-isDFA :: Automaton String String -> Bool
+isDFA :: Ord q => Automaton String q -> Bool
 isDFA (Automaton _ _ _ _ delta) =
     (all ((/= "\\epsilon") . snd . fst) delta)
         && (all ((== 1) . length) $ groupBy ((==) `on` fst) $ sortBy
@@ -171,6 +171,7 @@ completed automaton@(Automaton sigma states initialState terminalStates delta)
                         )
         else error "is not DFA"
 
+determinized :: Ord a => Automaton [Char] a -> Automaton [Char] (Set.Set a)
 determinized automaton@(Automaton sigma states initialState terminalStates delta)
     = if any ((== "\\epsilon") . snd . fst) delta
         then error "epsilon transitions"
@@ -232,6 +233,7 @@ determinized automaton@(Automaton sigma states initialState terminalStates delta
                     $ Map.toList newTransitions
                     )
 
+closed :: Ord q => Automaton String q -> Automaton String q
 closed automaton@(Automaton sigma states initialState terminalStates delta) =
     let
         epsilonClosureDelta =
@@ -261,6 +263,7 @@ closed automaton@(Automaton sigma states initialState terminalStates delta) =
     in
         Automaton sigma states initialState newTerminal newDelta
 
+minimalized :: Ord a => Automaton String a -> Automaton String a
 minimalized automaton@(Automaton sigma states initialState terminalStates delta)
     = if isDFA automaton
         then
@@ -274,10 +277,6 @@ minimalized automaton@(Automaton sigma states initialState terminalStates delta)
                     $ partition (`elem` terminalStates) (Set.toList states)
                 initialTable =
                     Set.fromList $ initialQueue ++ map swap initialQueue
-                run
-                    :: State
-                           ([(String, String)], Set (String, String))
-                           (Set (String, String))
                 run = do
                     maybeList <- gets $ listToMaybe . fst
                     if isNothing maybeList
@@ -324,5 +323,5 @@ minimalized automaton@(Automaton sigma states initialState terminalStates delta)
         else error "is not DFA"
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
-isMinimal :: Automaton String String -> Bool
+isMinimal :: Ord q => Automaton String q -> Bool
 isMinimal automaton = minimalized automaton == automaton
