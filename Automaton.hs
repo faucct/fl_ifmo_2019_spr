@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Automaton where
@@ -122,7 +123,7 @@ isNFA :: Automaton String String -> Bool
 isNFA = const True
 
 -- Checks if the automaton is complete (there exists a transition for each state and each input symbol)
-isComplete :: Automaton String String -> Bool
+isComplete :: Ord a => Automaton String a -> Bool
 isComplete automaton@(Automaton sigma states _ _ delta) = all
     (\symbol -> all (\state -> any ((== (state, symbol)) . fst) delta) states)
     sigma
@@ -150,19 +151,30 @@ mergeStates state1 state2 automaton@(Automaton sigma states initialState termina
                   delta
               )
 
+class WithDevilState a where
+    devilState :: a
+
+instance WithDevilState String where
+    devilState = "\\devil"
+
+instance WithDevilState (Set.Set a) where
+    devilState = Set.empty
+
+completed
+    :: (Ord a, WithDevilState a) => Automaton String a -> Automaton String a
 completed automaton@(Automaton sigma states initialState terminalStates delta)
     = if isDFA automaton
         then if length delta == Set.size sigma * Set.size states
             then automaton
             else
-                let newStates = Set.insert "\\devil" states
+                let newStates = Set.insert devilState states
                 in
                     Automaton
                         sigma
                         newStates
                         initialState
                         terminalStates
-                        (   (\pair -> fromMaybe (pair, "\\devil")
+                        (   (\pair -> fromMaybe (pair, devilState)
                                 $ find ((== pair) . fst) delta
                             )
                         <$> liftA2 (,)

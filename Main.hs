@@ -117,6 +117,7 @@ main = do
       ]
   fileNames <- getArgs
   let checkMin auto = isMinimal $ minimalized $ determinized $ closed auto
+  let checkMin2 auto = isComplete $ completed $ determinized $ closed auto
   mapM_
     (\fileName -> do
       input <- readFile fileName
