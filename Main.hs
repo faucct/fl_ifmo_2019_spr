@@ -27,12 +27,17 @@ main = do
   print
     $   (Automaton
           { sigma     = Set.fromList ["a", "b"]
-          , states    =
-            Set.fromList
-              [Set.fromList ["1"], Set.fromList ["1", "2"], Set.fromList ["2"]]
+          , states    = Set.fromList
+                          [ Set.fromList []
+                          , Set.fromList ["1"]
+                          , Set.fromList ["1", "2"]
+                          , Set.fromList ["2"]
+                          ]
           , initState = Set.fromList ["1"]
           , termState = Set.fromList [Set.fromList ["2"]]
-          , delta = [ ((Set.fromList ["1"], "a")     , Set.fromList ["1", "2"])
+          , delta = [ ((Set.fromList [], "a")        , Set.fromList [])
+                    , ((Set.fromList [], "b")        , Set.fromList [])
+                    , ((Set.fromList ["1"], "a")     , Set.fromList ["1", "2"])
                     , ((Set.fromList ["1"], "b")     , Set.fromList ["1"])
                     , ((Set.fromList ["1", "2"], "a"), Set.fromList ["1", "2"])
                     , ((Set.fromList ["1", "2"], "b"), Set.fromList ["1", "2"])

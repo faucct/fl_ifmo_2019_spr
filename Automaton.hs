@@ -189,8 +189,14 @@ determinized automaton@(Automaton sigma states initialState terminalStates delta
         then error "epsilon transitions"
         else
             let
-                initialTransitions = Map.fromListWith Set.union
+                initialTransitions = Map.union
+                    ( Map.fromListWith Set.union
                     $ map (\(pair, to) -> (pair, Set.singleton to)) delta
+                    )
+                    (Map.fromList $ zip
+                        (liftA2 (,) (Set.toList states) (Set.toList sigma))
+                        (repeat Set.empty)
+                    )
                 newTransitions = execState
                     (do
                         let
@@ -220,15 +226,21 @@ determinized automaton@(Automaton sigma states initialState terminalStates delta
                                         sigma
                         mapM_ addNewState $ Map.elems initialTransitions
                     )
-                    (Map.fromListWith Set.union <$> Map.fromListWith
-                        (++)
-                        (map
-                            (\((from, symbol), to) ->
-                                ( Set.singleton from
-                                , [(symbol, Set.singleton to)]
+                    (Map.union
+                        (Map.fromListWith Set.union <$> Map.fromListWith
+                            (++)
+                            (map
+                                (\((from, symbol), to) ->
+                                    ( Set.singleton from
+                                    , [(symbol, Set.singleton to)]
+                                    )
                                 )
+                                delta
                             )
-                            delta
+                        )
+                        (Map.fromList $ zip
+                            (Set.singleton <$> Set.toList states)
+                            (repeat Map.empty)
                         )
                     )
             in
