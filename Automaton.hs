@@ -287,65 +287,75 @@ closed automaton@(Automaton sigma states initialState terminalStates delta) =
     in
         Automaton sigma states initialState newTerminal newDelta
 
-minimalized :: Ord a => Automaton String a -> Automaton String a
-minimalized automaton@(Automaton sigma states initialState terminalStates delta)
-    = if isDFA automaton
-        then
-            let
-                inverseDeltas = Map.fromListWith (++) <$> Map.fromListWith
-                    (++)
-                    (map (\((from, symbol), to) -> (to, [(symbol, [from])]))
-                         delta
-                    )
-                initialQueue = uncurry (liftA2 (,))
-                    $ partition (`elem` terminalStates) (Set.toList states)
-                initialTable =
-                    Set.fromList $ initialQueue ++ map swap initialQueue
-                run = do
-                    maybeList <- gets $ listToMaybe . fst
-                    if isNothing maybeList
-                        then gets snd
-                        else do
-                            (stateA, stateB) <- state
-                                (\(pair : rest, table) -> (pair, (rest, table)))
-                            mapM_
-                                (\symbol -> do
-                                    let
-                                        pairs =
-                                            (    liftA2 (,)
-                                                `on` ( fromMaybe []
-                                                     . Map.lookup symbol
-                                                     . fromMaybe Map.empty
-                                                     . (`Map.lookup` inverseDeltas
-                                                       )
-                                                     )
-                                                )
-                                                stateA
-                                                stateB
-                                    mapM_
-                                        (\pair -> do
-                                            (queue, table) <- get
-                                            unless (Set.member pair table)
-                                                $ put
-                                                      ( pair : queue
-                                                      , Set.insert pair
-                                                          $ Set.insert
-                                                                (swap pair)
-                                                                table
-                                                      )
+minimalized
+    :: (Ord a, Show a, WithDevilState a)
+    => Automaton String a
+    -> Automaton String a
+minimalized = minimalizeCompleted . completed  where
+    minimalizeCompleted automaton@(Automaton sigma states initialState terminalStates delta)
+        = if isDFA automaton
+            then
+                let
+                    inverseDeltas = Map.fromListWith (++) <$> Map.fromListWith
+                        (++)
+                        (map
+                            (\((from, symbol), to) -> (to, [(symbol, [from])]))
+                            delta
+                        )
+                    initialQueue = uncurry (liftA2 (,)) $ partition
+                        (`elem` terminalStates)
+                        (Set.toList states)
+                    initialTable =
+                        Set.fromList $ initialQueue ++ map swap initialQueue
+                    run = do
+                        maybeList <- gets $ listToMaybe . fst
+                        if isNothing maybeList
+                            then gets snd
+                            else do
+                                (stateA, stateB) <-
+                                    state
+                                        (\(pair : rest, table) ->
+                                            (pair, (rest, table))
                                         )
-                                        pairs
-                                )
-                                (Set.toList sigma)
-                            run
-            in
-                foldr (uncurry mergeStates) automaton
-                . (liftA2 (,) (Set.toList states) (Set.toList states) \\)
-                . Set.toList
-                . snd
-                $ execState run (initialQueue, initialTable)
-        else error "is not DFA"
+                                mapM_
+                                    (\symbol -> do
+                                        let
+                                            pairs =
+                                                (liftA2 (,)
+                                                    `on` ( fromMaybe []
+                                                         . Map.lookup symbol
+                                                         . fromMaybe Map.empty
+                                                         . (`Map.lookup` inverseDeltas
+                                                           )
+                                                         )
+                                                    )
+                                                    stateA
+                                                    stateB
+                                        mapM_
+                                            (\pair -> do
+                                                (queue, table) <- get
+                                                unless (Set.member pair table)
+                                                    $ put
+                                                          ( pair : queue
+                                                          , Set.insert pair
+                                                              $ Set.insert
+                                                                    (swap pair)
+                                                                    table
+                                                          )
+                                            )
+                                            pairs
+                                    )
+                                    (Set.toList sigma)
+                                run
+                in
+                    ( foldr (uncurry mergeStates) automaton
+                    . (liftA2 (,) (Set.toList states) (Set.toList states) \\)
+                    . Set.toList
+                    . snd
+                    $ execState run (initialQueue, initialTable)
+                    )
+            else error "is not DFA"
 
 -- Checks if the automaton is minimal (only for DFAs: the number of states is minimal)
-isMinimal :: Ord q => Automaton String q -> Bool
+isMinimal :: (Ord a, Show a, WithDevilState a) => Automaton String a -> Bool
 isMinimal automaton = minimalized automaton == automaton
