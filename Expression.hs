@@ -2,12 +2,13 @@
 {-# LANGUAGE LambdaCase #-}
 module Expression where
 
-import Text.Printf
-import Combinators
+import           Text.Printf
+import           Combinators
 import           Combinators
 import           Control.Applicative
 import           Control.Monad
 import           Data.Char
+import           Data.Function
 import           Text.Printf
 
 data Operator = Pow
@@ -33,14 +34,65 @@ data EAst a = BinOp Operator (EAst a) (EAst a)
 -- Change the signature if necessary
 -- Constructs AST for the input expression
 parseExpression :: String -> Either [String] (EAst Integer)
-parseExpression input = 
-  runParserUntilEof (expression undefined undefined) input
+parseExpression = runParserUntilEof
+  (expression
+    [ (RAssoc, [(accept "||", BinOp Disj)])
+    , (RAssoc, [(accept "&&", BinOp Conj)])
+    , ( NAssoc
+      , [ (accept "==", BinOp Eq)
+        , (accept "/=", BinOp Neq)
+        , (accept "<=", BinOp Le)
+        , (accept "<" , BinOp Lt)
+        , (accept ">=", BinOp Ge)
+        , (accept ">" , BinOp Gt)
+        , (accept "-" , BinOp Minus)
+        ]
+      )
+    , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
+    , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
+    , (RAssoc, [(accept "^", BinOp Pow)])
+    ]
+    (   Primary
+    .   read
+    <$> (   accept "0"
+        <|> (:)
+        <$> foldr ((<|>) . char) (failure []) "123456789"
+        <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+        )
+    )
+  )
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
 executeExpression :: String -> Either [String] Integer
-executeExpression input = 
-  runParserUntilEof (expression undefined undefined) input
+executeExpression = runParserUntilEof
+  (expression
+    [ (RAssoc, [(accept "||", booleanOperator (||))])
+    , (RAssoc, [(accept "&&", booleanOperator (&&))])
+    , ( NAssoc
+      , [ (accept "==", relation (==))
+        , (accept "/=", relation (/=))
+        , (accept "<=", relation (<=))
+        , (accept "<" , relation (<))
+        , (accept ">=", relation (>=))
+        , (accept ">" , relation (>))
+        ]
+      )
+    , (LAssoc, [(accept "+", (+)), (accept "-", (-))])
+    , (LAssoc, [(accept "*", (*)), (accept "/", div)])
+    , (RAssoc, [(accept "^", (^))])
+    ]
+    (   read
+    <$> (   accept "0"
+        <|> (:)
+        <$> foldr ((<|>) . char) (failure []) "123456789"
+        <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+        )
+    )
+  )
+ where
+  relation operator a b = if operator a b then 1 else 0
+  booleanOperator = (`on` toEnum . fromInteger) . relation
 
 instance Show Operator where
   show Pow   = "^"

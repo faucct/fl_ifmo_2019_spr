@@ -1,10 +1,12 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Combinators where
-  
+
 import           Control.Applicative
+import           Data.Char
 import           Data.Function                  ( on )
 import           Data.List                      ( groupBy )
 
@@ -19,15 +21,68 @@ data Assoc = LAssoc -- left associativity
 -- Binary operators are listed in the order of precedence (from lower to higher)
 -- Binary operators on the same level of precedence have the same associativity
 -- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
-expression :: [(Assoc, [(Parser str b err, a -> a -> a)])] -> 
-              Parser str a err ->
-              Parser str a err    
-expression = undefined
+expression
+    :: Alternative err
+    => [(Assoc, [(Parser String (err String) b, a -> a -> a)])]
+    -> Parser String (err String) a
+    -> Parser String (err String) a
+expression associatedOperators primaryParser =
+    let
+        bracketed parser = char '(' *> parser <* char ')'
+        space = Parser $ \case
+            symbol : rest | isSpace symbol -> Right (rest, symbol)
+            _                              -> Left empty
+        spaced parser = many space *> parser <* many space
+        expressionParser = foldr
+            (\(assoc, operators) value ->
+                let
+                    operatorExpressionParser = foldr
+                        ( (<|>)
+                        . (\(parser, constructor) ->
+                              constructor <$> value <* spaced parser
+                          )
+                        )
+                        (failure empty)
+                        operators
+                    flippedOperatorExpressionParser = foldr
+                        ( (<|>)
+                        . (\(parser, constructor) ->
+                              flip constructor <$> (spaced parser *> value)
+                          )
+                        )
+                        (failure empty)
+                        operators
+                in
+                    case assoc of
+                        LAssoc ->
+                            foldr ($)
+                                <$> value
+                                <*> many flippedOperatorExpressionParser
+                        RAssoc ->
+                            let
+                                expressionParser =
+                                    operatorExpressionParser
+                                        <*> expressionParser
+                                        <|> value
+                            in  expressionParser
+                        NAssoc -> operatorExpressionParser <*> value <|> value
+            )
+            (bracketed expressionParser <|> primaryParser)
+            associatedOperators
+        bracketedParser =
+            spaced $ bracketed bracketedParser <|> spaced expressionParser
+    in
+        bracketedParser
 
-runParserUntilEof :: Foldable t => Parser (t str) [String] ok -> (t str) -> Either [String] ok 
-runParserUntilEof p inp = 
-  either (Left . id) (\(rest, ok) -> if null rest then Right ok else Left ["Expected eof"]) (runParser p inp)  
-  
+runParserUntilEof
+    :: Parser String [String] ok -> String -> Either [String] ok
+runParserUntilEof p inp = either
+    Left
+    (\(rest, ok) ->
+        if null rest then Right ok else Left ["Remaining input: " ++ rest]
+    )
+    (runParser p inp)
+
 withLineAndColumn :: [Char] -> [((Int, Int), Char)]
 withLineAndColumn string = zip
     (scanl

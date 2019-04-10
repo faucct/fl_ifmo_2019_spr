@@ -10,7 +10,8 @@ import qualified Data.Set                      as Set
 
 main :: IO ()
 main = do
-  print $ Left ["remaining input: abc"] == parseExpression " 1 abc"
+  print $ parseExpression "1 && 1 || 2"
+  print $ Left ["Remaining input: abc"] == parseExpression " 1 abc"
   print
     $   (BinOp
           Conj
@@ -21,6 +22,7 @@ main = do
           (BinOp Eq (Primary 4) (Primary 4)) ==
         )
     <$> parseExpression "  1 ^ (2 + 3) == 1 && 4 == 4  "
+  print $ (1 ==) <$> executeExpression "  1 ^ (2 + 3) == 1 && 4 == 4  "
   fileNames <- getArgs
   mapM_
     (\fileName -> do
