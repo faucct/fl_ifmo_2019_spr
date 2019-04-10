@@ -1,7 +1,14 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 module Expression where
 
 import Text.Printf
 import Combinators
+import           Combinators
+import           Control.Applicative
+import           Control.Monad
+import           Data.Char
+import           Text.Printf
 
 data Operator = Pow
               | Mul
@@ -16,20 +23,22 @@ data Operator = Pow
               | Gt
               | Conj
               | Disj
+              deriving Eq
 
 -- Simplest abstract syntax tree for expressions: only binops are allowed
 data EAst a = BinOp Operator (EAst a) (EAst a)
             | Primary a
+        deriving (Eq)
 
 -- Change the signature if necessary
 -- Constructs AST for the input expression
-parseExpression :: String -> Either String (EAst Integer)
+parseExpression :: String -> Either [String] (EAst Integer)
 parseExpression input = 
   runParserUntilEof (expression undefined undefined) input
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
-executeExpression :: String -> Either String Integer
+executeExpression :: String -> Either [String] Integer
 executeExpression input = 
   runParserUntilEof (expression undefined undefined) input
 
@@ -50,13 +59,17 @@ instance Show Operator where
 
 instance Show a => Show (EAst a) where
   show = show' 0
-    where
-      show' n t =
-        (if n > 0 then printf "%s|_%s" (concat (replicate (n - 1) "| ")) else id)
+   where
+    show' n t =
+      (if n > 0 then printf "%s|_%s" (concat (replicate (n - 1) "| ")) else id)
         (case t of
-                  BinOp op l r -> printf "%s\n%s\n%s" (show op) (show' (ident n) l) (show' (ident n) r)
-                  Primary x -> show x)
-      ident = (+1)
+          BinOp op l r -> printf "%s\n%s\n%s"
+                                 (show op)
+                                 (show' (ident n) l)
+                                 (show' (ident n) r)
+          Primary x -> show x
+        )
+    ident = (+ 1)
 
 {-
 show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Primary 4))
