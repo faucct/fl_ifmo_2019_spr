@@ -5,6 +5,7 @@
 module Combinators where
 
 import           Control.Applicative
+import           Control.Arrow
 import           Data.Function                  ( on )
 import           Data.List                      ( groupBy )
 
@@ -38,6 +39,9 @@ success ok = Parser $ \s -> Right (s, ok)
 -- Parser which fails no matter the input
 failure :: err -> Parser str err ok
 failure = Parser . const . Left
+
+withErrorMessage :: err -> Parser str prevError ok -> Parser str err ok
+withErrorMessage errorMessage (Parser parser) = Parser $ Control.Arrow.left (const errorMessage) . parser
 
 -- Biased choice: if the first parser succeedes, the second is never run
 instance Alternative err => Alternative (Parser token (err e)) where

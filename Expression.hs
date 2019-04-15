@@ -4,8 +4,10 @@ module Expression where
 
 import           Combinators
 import           Control.Applicative
+import           Control.Arrow
 import           Control.Monad
 import           Data.Char
+import           Data.List
 import           Text.Printf
 
 data Operator = Pow
@@ -30,7 +32,7 @@ data EAst a = BinOp Operator (EAst a) (EAst a)
 
 -- Change the signature if necessary
 parseExpression :: String -> Either [String] (EAst Integer)
-parseExpression input = do
+parseExpression input = Control.Arrow.left nub $ do
   (rest, eAST) <- runParser (spaced s) input
   when (rest /= "") $ Left ["remaining input: " ++ rest]
   return eAST
@@ -53,14 +55,14 @@ parseExpression input = do
     bracketed n0
       <|> Primary
       .   read
-      <$> (   accept "0"
+      <$> withErrorMessage ["expected number"] (   accept "0"
           <|> (:)
           <$> foldr ((<|>) . char) (failure []) "123456789"
           <*> many (foldr ((<|>) . char) (failure []) "0123456789")
           )
   binOp operator left right =
     BinOp operator <$> left <* spaced (accept (show operator)) <*> right
-  leftAssociativeBinOps operators value = foldr ($) <$> value <*> many
+  leftAssociativeBinOps operators value = foldl (flip id) <$> value <*> many
     (foldr
       ( (<|>)
       . (\operator ->
