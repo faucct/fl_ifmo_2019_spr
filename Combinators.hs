@@ -55,7 +55,7 @@ expression associatedOperators primaryParser =
                 in
                     case assoc of
                         LAssoc ->
-                            foldr ($)
+                            foldl (flip id)
                                 <$> value
                                 <*> many flippedOperatorExpressionParser
                         RAssoc ->
