@@ -14,6 +14,7 @@ main = do
     $   (BinOp Minus (BinOp Minus (Primary 1) (Primary 2)) (Primary 3) ==)
     <$> parseExpression "1-2-3"
   print $ parseExpression "1 && 1 || 2"
+  print $ executeExpression "1&&2"
   print $ Left ["Remaining input: abc"] == parseExpression " 1 abc"
   print
     $   (BinOp

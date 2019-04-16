@@ -92,7 +92,7 @@ executeExpression = runParserUntilEof
   )
  where
   relation operator a b = if operator a b then 1 else 0
-  booleanOperator = (`on` toEnum . fromInteger) . relation
+  booleanOperator = (`on` (/= 0) . fromInteger) . relation
 
 instance Show Operator where
   show Pow   = "^"
