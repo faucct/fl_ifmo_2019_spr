@@ -37,7 +37,7 @@ parseExpression input = Control.Arrow.left nub $ do
   when (rest /= "") $ Left ["remaining input: " ++ rest]
   return eAST
  where
-  s  = b0 <|> n0
+  s  = b0
   b0 = binOp Disj b1 b0 <|> b1
   b1 = binOp Conj b2 b1 <|> b2
   b2 =
@@ -47,12 +47,12 @@ parseExpression input = Control.Arrow.left nub $ do
       <|> binOp Lt  n0 n0
       <|> binOp Gt  n0 n0
       <|> binOp Ge  n0 n0
-      <|> bracketed b0
+      <|> n0
   n0 = leftAssociativeBinOps [Sum, Minus] n1
   n1 = leftAssociativeBinOps [Mul, Div] n2
   n2 = binOp Pow n3 n2 <|> n3
   n3 =
-    bracketed n0
+    bracketed b0
       <|> Primary
       .   read
       <$> withErrorMessage ["expected number"] (   accept "0"
