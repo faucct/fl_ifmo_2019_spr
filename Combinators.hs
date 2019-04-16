@@ -60,19 +60,17 @@ expression associatedOperators primaryParser =
                                 <*> many flippedOperatorExpressionParser
                         RAssoc ->
                             let
-                                expressionParser =
+                                parser =
                                     operatorExpressionParser
-                                        <*> expressionParser
+                                        <*> parser
                                         <|> value
-                            in  expressionParser
+                            in  parser
                         NAssoc -> operatorExpressionParser <*> value <|> value
             )
             (bracketed expressionParser <|> primaryParser)
             associatedOperators
-        bracketedParser =
-            spaced $ bracketed bracketedParser <|> spaced expressionParser
     in
-        bracketedParser
+        spaced expressionParser
 
 runParserUntilEof
     :: Parser String [String] ok -> String -> Either [String] ok

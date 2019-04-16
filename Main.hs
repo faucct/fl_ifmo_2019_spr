@@ -15,6 +15,7 @@ main = do
     <$> parseExpression "1-2-3"
   print $ parseExpression "1 && 1 || 2"
   print $ executeExpression "1&&2"
+  print $ executeExpression "(1+2)*(3+4)\n"
   print $ Left ["Remaining input: abc"] == parseExpression " 1 abc"
   print
     $   (BinOp
