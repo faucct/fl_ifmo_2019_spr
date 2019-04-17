@@ -30,7 +30,7 @@ expression associatedOperators primaryParser =
     let
         emptyStack = repeat Nothing
         withStack stack = do
-            primary         <- bracketed expressionParser <|> primaryParser
+            primary         <- primaryParser
             valueOrNewStack <- foldr
                 (\((assoc, operators), prevOperator) higherPriorityParser -> do
                     valueOrNewStack <- higherPriorityParser
@@ -80,7 +80,6 @@ expression associatedOperators primaryParser =
             case valueOrNewStack of
                 Left  constructor -> return $ constructor primary
                 Right newStack    -> withStack newStack
-        bracketed parser = char '(' *> parser <* char ')'
         space = Parser $ \case
             symbol : rest | isSpace symbol -> Right (rest, symbol)
             _                              -> Left empty

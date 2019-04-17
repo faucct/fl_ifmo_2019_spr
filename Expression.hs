@@ -9,9 +9,11 @@ import           Control.Applicative
 import           Control.Monad
 import           Data.Char
 import           Data.Function
+import           Data.Map                       ( Map )
+import qualified Data.Map                      as Map
 import           Text.Printf
 
-data Operator = Pow
+data BinOperator = Pow
               | Mul
               | Div
               | Sum
@@ -26,75 +28,211 @@ data Operator = Pow
               | Disj
               deriving Eq
 
+relation operator a b = if operator a b then 1 else 0
+
+booleanOperator operator = relation (operator `on` ((/= 0) . fromInteger))
+
+binOperatorConstructor :: BinOperator -> Integer -> Integer -> Integer
+binOperatorConstructor Pow   = (^)
+binOperatorConstructor Mul   = (*)
+binOperatorConstructor Div   = div
+binOperatorConstructor Sum   = (+)
+binOperatorConstructor Minus = (-)
+binOperatorConstructor Eq    = relation (==)
+binOperatorConstructor Neq   = relation (/=)
+binOperatorConstructor Le    = relation (<=)
+binOperatorConstructor Lt    = relation (<)
+binOperatorConstructor Ge    = relation (>=)
+binOperatorConstructor Gt    = relation (>)
+binOperatorConstructor Conj  = booleanOperator (&&)
+binOperatorConstructor Disj  = booleanOperator (||)
+
+data UnOperator = Neg | Not deriving Eq
+
+unOperatorConstructor :: UnOperator -> Integer -> Integer
+unOperatorConstructor Neg = negate
+unOperatorConstructor Not = \value -> if value == 0 then 1 else 0
+
 -- Simplest abstract syntax tree for expressions: only binops are allowed
-data EAst a = BinOp Operator (EAst a) (EAst a)
+data EAst a identifier = BinOp BinOperator (EAst a identifier) (EAst a identifier)
+            | UnOp UnOperator (EAst a identifier)
             | Primary a
+            | Identifier identifier
         deriving (Eq)
+
+bracketed
+  :: (Applicative err, TokenContainer tokenContainer Char)
+  => Parser [tokenContainer] (err String) a
+  -> Parser [tokenContainer] (err String) a
+bracketed parser = char '(' *> parser <* char ')'
 
 -- Change the signature if necessary
 -- Constructs AST for the input expression
-parseExpression :: String -> Either [String] (EAst Integer)
-parseExpression = runParserUntilEof
-  (expression
-    [ (RAssoc, [(accept "||", BinOp Disj)])
-    , (RAssoc, [(accept "&&", BinOp Conj)])
-    , ( NAssoc
-      , [ (accept "==", BinOp Eq)
-        , (accept "/=", BinOp Neq)
-        , (accept "<=", BinOp Le)
-        , (accept "<" , BinOp Lt)
-        , (accept ">=", BinOp Ge)
-        , (accept ">" , BinOp Gt)
-        , (accept "-" , BinOp Minus)
+parseExpression :: String -> Either [String] (EAst Integer String)
+parseExpression =
+  let space = Parser $ \case
+        symbol : rest | isSpace symbol -> Right (rest, symbol)
+        _                              -> Left empty
+      primaryParser =
+          Primary
+            .   read
+            <$> (   accept "0"
+                <|> (:)
+                <$> foldr ((<|>) . char) (failure []) "123456789"
+                <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+                )
+      unOpParser =
+          UnOp
+            <$> foldr
+                  (\unOperator ->
+                    (accept (show unOperator) *> success unOperator <|>)
+                  )
+                  empty
+                  [Neg, Not]
+            <*  many space
+            <*> expressionParser
+      identifierParser =
+          curry (Identifier . uncurry (:))
+            <$> (Parser $ \case
+                  (char : rest) | isLower char || char == '_' ->
+                    Right (rest, char)
+                  _ -> Left ["expected a lower character or underscore"]
+                )
+            <*> many
+                  (Parser $ \case
+                    (char : rest) | isAlphaNum char -> Right (rest, char)
+                    _                               -> Left []
+                  )
+      expressionParser = expression
+        [ (RAssoc, [(accept "||", BinOp Disj)])
+        , (RAssoc, [(accept "&&", BinOp Conj)])
+        , ( NAssoc
+          , [ (accept "==", BinOp Eq)
+            , (accept "/=", BinOp Neq)
+            , (accept "<=", BinOp Le)
+            , (accept "<" , BinOp Lt)
+            , (accept ">=", BinOp Ge)
+            , (accept ">" , BinOp Gt)
+            , (accept "-" , BinOp Minus)
+            ]
+          )
+        , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
+        , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
+        , (RAssoc, [(accept "^", BinOp Pow)])
         ]
-      )
-    , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
-    , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
-    , (RAssoc, [(accept "^", BinOp Pow)])
-    ]
-    (   Primary
-    .   read
-    <$> (   accept "0"
-        <|> (:)
-        <$> foldr ((<|>) . char) (failure []) "123456789"
-        <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+        (   bracketed expressionParser
+        <|> primaryParser
+        <|> identifierParser
+        <|> unOpParser
         )
-    )
-  )
+  in  runParserUntilEof expressionParser
+
+optimizeExpression :: EAst Integer String -> EAst Integer String
+optimizeExpression (BinOp Sum value (Primary 0)) = optimizeExpression value
+optimizeExpression (BinOp Sum (Primary 0) value) = optimizeExpression value
+optimizeExpression (BinOp Mul (Primary 0) _) = Primary 0
+optimizeExpression (BinOp Mul _ (Primary 0)) = Primary 0
+optimizeExpression (BinOp Mul value (Primary 1)) = optimizeExpression value
+optimizeExpression (BinOp Mul (Primary 1) value) = optimizeExpression value
+optimizeExpression (BinOp operator left right) =
+  let optimizedLeft  = optimizeExpression left
+      optimizedRight = optimizeExpression right
+  in  case optimizedLeft of
+        Primary leftPrimary | Primary rightPrimary <- optimizedRight ->
+          Primary $ binOperatorConstructor operator leftPrimary rightPrimary
+        _ -> BinOp operator optimizedLeft optimizedRight
+optimizeExpression (UnOp operator value) =
+  let optimizedValue = optimizeExpression value
+  in  case optimizedValue of
+        Primary primaryValue ->
+          Primary $ unOperatorConstructor operator primaryValue
+        _ -> UnOp operator optimizedValue
+optimizeExpression value = value
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
-executeExpression :: String -> Either [String] Integer
-executeExpression = runParserUntilEof
-  (expression
-    [ (RAssoc, [(accept "||", booleanOperator (||))])
-    , (RAssoc, [(accept "&&", booleanOperator (&&))])
-    , ( NAssoc
-      , [ (accept "==", relation (==))
-        , (accept "/=", relation (/=))
-        , (accept "<=", relation (<=))
-        , (accept "<" , relation (<))
-        , (accept ">=", relation (>=))
-        , (accept ">" , relation (>))
-        ]
-      )
-    , (LAssoc, [(accept "+", (+)), (accept "-", (-))])
-    , (LAssoc, [(accept "*", (*)), (accept "/", div)])
-    , (RAssoc, [(accept "^", (^))])
-    ]
-    (   read
-    <$> (   accept "0"
-        <|> (:)
-        <$> foldr ((<|>) . char) (failure []) "123456789"
-        <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+executeExpression :: String -> Either [String] (Map String Integer -> Integer)
+executeExpression =
+  let
+    space = Parser $ \case
+      symbol : rest | isSpace symbol -> Right (rest, symbol)
+      _                              -> Left empty
+    primaryParser =
+      const
+        <$> (   read
+            <$> (   accept "0"
+                <|> (:)
+                <$> foldr ((<|>) . char) (failure []) "123456789"
+                <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+                )
+            )
+    unOpParser =
+      foldr
+          (\(unOperator, constructor) ->
+            (accept (show unOperator) *> success (constructor .) <|>)
+          )
+          empty
+          [ (Neg, negate)
+          , ( Not
+            , \case
+              0 -> 1
+              _ -> 0
+            )
+          ]
+        <*  many space
+        <*> expressionParser
+    identifierParser =
+      curry (flip (Map.!) . uncurry (:))
+        <$> (Parser $ \case
+              (char : rest) | isLower char || char == '_' -> Right (rest, char)
+              _ -> Left ["expected a lower character or underscore"]
+            )
+        <*> many
+              (Parser $ \case
+                (char : rest) | isAlphaNum char -> Right (rest, char)
+                _                               -> Left []
+              )
+    expressionParser = expression
+      [ (RAssoc, [(accept "||", booleanOperator (||))])
+      , (RAssoc, [(accept "&&", booleanOperator (&&))])
+      , ( NAssoc
+        , [ (accept "==", relation (==))
+          , (accept "/=", relation (/=))
+          , (accept "<=", relation (<=))
+          , (accept "<" , relation (<))
+          , (accept ">=", relation (>=))
+          , (accept ">" , relation (>))
+          ]
         )
-    )
-  )
+      , ( LAssoc
+        , [(accept "+", primaryOperator (+)), (accept "-", primaryOperator (-))]
+        )
+      , ( LAssoc
+        , [(accept "*", primaryOperator (*)), (accept "/", primaryOperator div)]
+        )
+      , (RAssoc, [(accept "^", primaryOperator (^))])
+      ]
+      (   bracketed expressionParser
+      <|> primaryParser
+      <|> unOpParser
+      <|> identifierParser
+      )
+  in
+    runParserUntilEof expressionParser
  where
-  relation operator a b = if operator a b then 1 else 0
-  booleanOperator = (`on` (/= 0) . fromInteger) . relation
+  relation operator a b context =
+    if (operator `on` ($ context)) a b then 1 else 0
+  booleanOperator
+    :: (Bool -> Bool -> Bool)
+    -> (Map String Integer -> Integer)
+    -> (Map String Integer -> Integer)
+    -> Map String Integer
+    -> Integer
+  booleanOperator operator = relation (operator `on` ((/= 0) . fromInteger))
+  primaryOperator operator left right context =
+    (operator `on` ($ context)) left right
 
-instance Show Operator where
+instance Show BinOperator where
   show Pow   = "^"
   show Mul   = "*"
   show Div   = "/"
@@ -109,7 +247,11 @@ instance Show Operator where
   show Conj  = "&&"
   show Disj  = "||"
 
-instance Show a => Show (EAst a) where
+instance Show UnOperator where
+  show Neg = "-"
+  show Not = "!"
+
+instance (Show a, Show identifier) => Show (EAst a identifier) where
   show = show' 0
    where
     show' n t =
@@ -119,7 +261,9 @@ instance Show a => Show (EAst a) where
                                  (show op)
                                  (show' (ident n) l)
                                  (show' (ident n) r)
-          Primary x -> show x
+          UnOp op v             -> printf "%s\n%s" (show op) (show' (ident n) v)
+          Primary    x          -> show x
+          Identifier identifier -> show identifier
         )
     ident = (+ 1)
 
