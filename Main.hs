@@ -3,6 +3,8 @@ module Main where
 import           Data.Either
 import           Data.Function
 import           Data.List
+import           Data.Map                       ( Map )
+import qualified Data.Map                      as Map
 import           System.Environment
 import           Expression
 import           Text.Printf
@@ -15,9 +17,13 @@ main = do
     $   (BinOp Minus (BinOp Minus (Primary 1) (Primary 2)) (Primary 3) ==)
     <$> parseExpression "1-2-3"
   print $ parseExpression "1 && 1 || 2"
-  print $ executeExpression "1&&2"
-  print $ executeExpression "(1+2)*(3+4)\n"
+  print $ executeExpression "1&&2" <*> pure Map.empty
+  print $ executeExpression "(1+2)*(3+4)\n" <*> pure Map.empty
   print $ Left ["Remaining input: abc"] == parseExpression " 1 abc"
+  print $ Right (UnOp Neg (Identifier "foo")) == parseExpression "-foo"
+  print
+    $   (-1 ==)
+    <$> (executeExpression "-foo" <*> pure (Map.singleton "foo" 1))
   print
     $   (BinOp
           Conj
@@ -28,16 +34,18 @@ main = do
           (BinOp Eq (Primary 4) (Primary 4)) ==
         )
     <$> parseExpression "  1 ^ (2 + 3) == 1 && 4 == 4  "
-  print $ (1 ==) <$> executeExpression "  1 ^ (2 + 3) == 1 && 4 == 4  "
+  print
+    $   (1 ==)
+    <$> (executeExpression "  1 ^ (2 + 3) == 1 && 4 == 4  " <*> pure Map.empty)
   fileNames <- getArgs
   mapM_
     (\fileName -> do
-        input <- readFile fileName
-        let a = parseExpression input
-        let r = executeExpression input
-        putStrLn $ printf "Parsing %s\n" fileName
-        putStrLn $ either show show a
-        putStrLn $ either show show r
-        putStrLn ""
+      input <- readFile fileName
+      let a = parseExpression input
+      let r = executeExpression input
+      putStrLn $ printf "Parsing %s\n" fileName
+      putStrLn $ either show show a
+      putStrLn $ either show (show . ($ Map.empty)) r
+      putStrLn ""
     )
     fileNames
