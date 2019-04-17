@@ -28,52 +28,68 @@ expression
     -> Parser String (err String) a
 expression associatedOperators primaryParser =
     let
+        emptyStack = repeat Nothing
+        withStack stack = do
+            primary         <- bracketed expressionParser <|> primaryParser
+            valueOrNewStack <- foldr
+                (\((assoc, operators), prevOperator) higherPriorityParser -> do
+                    valueOrNewStack <- higherPriorityParser
+                    case valueOrNewStack of
+                        Left higherOperator -> do
+                            let leftPrimary = higherOperator primary
+                            operatorConstructor <- foldr
+                                (\(parser, constructor) ->
+                                    ((  spaced parser
+                                     *> success (Right constructor)
+                                     ) <|>
+                                    )
+                                )
+                                (success $ Left $ maybe higherOperator
+                                                        (. higherOperator)
+                                                        prevOperator
+                                )
+                                operators
+                            traverse
+                                (\operator ->
+                                    ((: emptyStack) . Just)
+                                        <$> maybe
+                                                (return $ operator leftPrimary)
+                                                (\prevOperator -> case assoc of
+                                                    LAssoc ->
+                                                        return
+                                                            $ operator
+                                                            $ prevOperator
+                                                                  leftPrimary
+                                                    NAssoc ->
+                                                        failure
+                                                            $ pure
+                                                                  "non-associative operator"
+                                                    RAssoc ->
+                                                        return
+                                                            $ prevOperator
+                                                            . operator leftPrimary
+                                                )
+                                                prevOperator
+                                )
+                                operatorConstructor
+                        Right newStack ->
+                            return $ Right $ prevOperator : newStack
+                )
+                (pure $ Left id)
+                (zip associatedOperators stack)
+            case valueOrNewStack of
+                Left  constructor -> return $ constructor primary
+                Right newStack    -> withStack newStack
         bracketed parser = char '(' *> parser <* char ')'
         space = Parser $ \case
             symbol : rest | isSpace symbol -> Right (rest, symbol)
             _                              -> Left empty
         spaced parser = many space *> parser <* many space
-        expressionParser = foldr
-            (\(assoc, operators) value ->
-                let
-                    operatorExpressionParser = foldr
-                        ( (<|>)
-                        . (\(parser, constructor) ->
-                              constructor <$> value <* spaced parser
-                          )
-                        )
-                        (failure empty)
-                        operators
-                    flippedOperatorExpressionParser = foldr
-                        ( (<|>)
-                        . (\(parser, constructor) ->
-                              flip constructor <$> (spaced parser *> value)
-                          )
-                        )
-                        (failure empty)
-                        operators
-                in
-                    case assoc of
-                        LAssoc ->
-                            foldl (flip id)
-                                <$> value
-                                <*> many flippedOperatorExpressionParser
-                        RAssoc ->
-                            let
-                                parser =
-                                    operatorExpressionParser
-                                        <*> parser
-                                        <|> value
-                            in  parser
-                        NAssoc -> operatorExpressionParser <*> value <|> value
-            )
-            (bracketed expressionParser <|> primaryParser)
-            associatedOperators
+        expressionParser = withStack emptyStack
     in
         spaced expressionParser
 
-runParserUntilEof
-    :: Parser String [String] ok -> String -> Either [String] ok
+runParserUntilEof :: Parser String [String] ok -> String -> Either [String] ok
 runParserUntilEof p inp = either
     Left
     (\(rest, ok) ->
