@@ -37,6 +37,8 @@ main = do
   print
     $   (1 ==)
     <$> (executeExpression "  1 ^ (2 + 3) == 1 && 4 == 4  " <*> pure Map.empty)
+  print $ (Primary 0 ==) . optimizeExpression <$> parseExpression "0 * foo"
+  print $ (Primary 2 ==) . optimizeExpression <$> parseExpression "1 * 2"
   fileNames <- getArgs
   mapM_
     (\fileName -> do

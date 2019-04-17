@@ -28,7 +28,30 @@ data BinOperator = Pow
               | Disj
               deriving Eq
 
+relation operator a b = if operator a b then 1 else 0
+
+booleanOperator operator = relation (operator `on` ((/= 0) . fromInteger))
+
+binOperatorConstructor :: BinOperator -> Integer -> Integer -> Integer
+binOperatorConstructor Pow   = (^)
+binOperatorConstructor Mul   = (*)
+binOperatorConstructor Div   = div
+binOperatorConstructor Sum   = (+)
+binOperatorConstructor Minus = (-)
+binOperatorConstructor Eq    = relation (==)
+binOperatorConstructor Neq   = relation (/=)
+binOperatorConstructor Le    = relation (<=)
+binOperatorConstructor Lt    = relation (<)
+binOperatorConstructor Ge    = relation (>=)
+binOperatorConstructor Gt    = relation (>)
+binOperatorConstructor Conj  = booleanOperator (&&)
+binOperatorConstructor Disj  = booleanOperator (||)
+
 data UnOperator = Neg | Not deriving Eq
+
+unOperatorConstructor :: UnOperator -> Integer -> Integer
+unOperatorConstructor Neg = negate
+unOperatorConstructor Not = \value -> if value == 0 then 1 else 0
 
 -- Simplest abstract syntax tree for expressions: only binops are allowed
 data EAst a identifier = BinOp BinOperator (EAst a identifier) (EAst a identifier)
@@ -103,6 +126,28 @@ parseExpression =
         <|> unOpParser
         )
   in  runParserUntilEof expressionParser
+
+optimizeExpression :: EAst Integer String -> EAst Integer String
+optimizeExpression (BinOp Sum value (Primary 0)) = optimizeExpression value
+optimizeExpression (BinOp Sum (Primary 0) value) = optimizeExpression value
+optimizeExpression (BinOp Mul (Primary 0) _) = Primary 0
+optimizeExpression (BinOp Mul _ (Primary 0)) = Primary 0
+optimizeExpression (BinOp Mul value (Primary 1)) = optimizeExpression value
+optimizeExpression (BinOp Mul (Primary 1) value) = optimizeExpression value
+optimizeExpression (BinOp operator left right) =
+  let optimizedLeft  = optimizeExpression left
+      optimizedRight = optimizeExpression right
+  in  case optimizedLeft of
+        Primary leftPrimary | Primary rightPrimary <- optimizedRight ->
+          Primary $ binOperatorConstructor operator leftPrimary rightPrimary
+        _ -> BinOp operator optimizedLeft optimizedRight
+optimizeExpression (UnOp operator value) =
+  let optimizedValue = optimizeExpression value
+  in  case optimizedValue of
+        Primary primaryValue ->
+          Primary $ unOperatorConstructor operator primaryValue
+        _ -> UnOp operator optimizedValue
+optimizeExpression value = value
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
