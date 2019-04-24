@@ -4,11 +4,12 @@ module Expression where
 
 import           Text.Printf
 import           Combinators
-import           Combinators
 import           Control.Applicative
 import           Control.Monad
 import           Data.Char
 import           Data.Function
+import           Combinators
+import           Data.Functor.Compose
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Text.Printf
@@ -53,11 +54,106 @@ unOperatorConstructor :: UnOperator -> Integer -> Integer
 unOperatorConstructor Neg = negate
 unOperatorConstructor Not = \value -> if value == 0 then 1 else 0
 
+spaceParser :: Parser String [a] Char
+spaceParser = Parser $ \case
+  symbol : rest | isSpace symbol -> Right (rest, symbol)
+  _                              -> Left empty
+
+infixl 4 :@>
+
+newtype Fix f = Fix (f (Fix f))
+data DataType = DataType String (Map String [TypeReference]) deriving Show
+data TypeReference = TypeReference String | TypeReference :@> TypeReference deriving Show
+data TypeAlias = TypeAlias String TypeReference deriving Show
+
+typeReferenceParser :: Parser String [String] TypeReference
+typeReferenceParser =
+  TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser
+
+headTypeReferenceParser :: Parser String [String] TypeReference
+headTypeReferenceParser = expression
+  [(LAssoc, [(some spaceParser, (:@>))])]
+  (TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser)
+
+guardNotReserved identifier =
+  when (identifier `elem` ["let", "data", "type", "in", "if", "then", "else"])
+    $ failure [identifier ++ " is a reserved keyword"]
+
+typeIdentifierParser :: Parser String [String] String
+typeIdentifierParser = do
+  initial <- headParser
+  unless (isUpper initial) $ failure ["expected upper"]
+  rest <- many $ do
+    subsequent <- headParser
+    guard $ isAlphaNum subsequent
+    return subsequent
+  let identifier = initial : rest
+  guardNotReserved identifier
+  return identifier
+
+dataDefinitionParser :: Parser String [String] DataType
+dataDefinitionParser =
+  let constructorParser = do
+        constructor <- typeIdentifierParser
+        arguments   <- many (many spaceParser *> typeReferenceParser)
+        return (constructor, arguments)
+  in
+    do
+      _              <- accept "data"
+      _              <- some spaceParser
+      typeIdentifier <- typeIdentifierParser
+      _              <- many spaceParser
+      constructors   <-
+        (do
+            _           <- accept "="
+            _           <- many spaceParser
+            constructor <- constructorParser
+            rest        <-
+              many
+                (  many spaceParser
+                *> accept "|"
+                *> many spaceParser
+                *> constructorParser
+                )
+            return $ constructor : rest
+          )
+          <|> success []
+      return $ DataType typeIdentifier $ Map.fromList constructors
+
+typeAliasParser :: Parser String [String] TypeAlias
+typeAliasParser = do
+  _              <- accept "type"
+  _              <- some spaceParser
+  typeIdentifier <- typeIdentifierParser
+  _              <- many spaceParser
+  _              <- accept "="
+  _              <- many spaceParser
+  TypeAlias typeIdentifier <$> headTypeReferenceParser
+
+typeSystemParser :: Parser String [String] [Either DataType TypeAlias]
+typeSystemParser =
+  many spaceParser
+    *> (   success []
+       <*  eofParser
+       <|> let parser =
+                 Left <$> dataDefinitionParser <|> Right <$> typeAliasParser
+           in  (:) <$> parser <* many spaceParser <*> manyUntil
+                 eofParser
+                 (accept ";" *> many spaceParser *> parser <* many spaceParser
+                 )
+       )
+
+data Pattern identifier = VariablePattern identifier | ConstructorPattern identifier [Pattern identifier] deriving (Eq, Show)
+
 -- Simplest abstract syntax tree for expressions: only binops are allowed
 data EAst a identifier = BinOp BinOperator (EAst a identifier) (EAst a identifier)
             | UnOp UnOperator (EAst a identifier)
             | Primary a
             | Identifier identifier
+            | Function (Pattern identifier) (EAst a identifier)
+            | Application (EAst a identifier) (EAst a identifier)
+            | Let (Pattern identifier) (EAst a identifier) (EAst a identifier)
+            | If (EAst a identifier) (EAst a identifier) (EAst a identifier)
         deriving (Eq)
 
 bracketed
@@ -70,62 +166,124 @@ bracketed parser = char '(' *> parser <* char ')'
 -- Constructs AST for the input expression
 parseExpression :: String -> Either [String] (EAst Integer String)
 parseExpression =
-  let space = Parser $ \case
-        symbol : rest | isSpace symbol -> Right (rest, symbol)
-        _                              -> Left empty
-      primaryParser =
-          Primary
-            .   read
-            <$> (   accept "0"
-                <|> (:)
-                <$> foldr ((<|>) . char) (failure []) "123456789"
-                <*> many (foldr ((<|>) . char) (failure []) "0123456789")
-                )
-      unOpParser =
-          UnOp
-            <$> foldr
-                  (\unOperator ->
-                    (accept (show unOperator) *> success unOperator <|>)
-                  )
-                  empty
-                  [Neg, Not]
-            <*  many space
-            <*> expressionParser
-      identifierParser =
-          curry (Identifier . uncurry (:))
-            <$> (Parser $ \case
-                  (char : rest) | isLower char || char == '_' ->
-                    Right (rest, char)
-                  _ -> Left ["expected a lower character or underscore"]
-                )
-            <*> many
-                  (Parser $ \case
-                    (char : rest) | isAlphaNum char -> Right (rest, char)
-                    _                               -> Left []
-                  )
-      expressionParser = expression
-        [ (RAssoc, [(accept "||", BinOp Disj)])
-        , (RAssoc, [(accept "&&", BinOp Conj)])
-        , ( NAssoc
-          , [ (accept "==", BinOp Eq)
-            , (accept "/=", BinOp Neq)
-            , (accept "<=", BinOp Le)
-            , (accept "<" , BinOp Lt)
-            , (accept ">=", BinOp Ge)
-            , (accept ">" , BinOp Gt)
-            , (accept "-" , BinOp Minus)
-            ]
-          )
-        , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
-        , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
-        , (RAssoc, [(accept "^", BinOp Pow)])
-        ]
-        (   bracketed expressionParser
-        <|> primaryParser
-        <|> identifierParser
-        <|> unOpParser
+  let
+    primaryParser =
+      Primary
+        .   read
+        <$> (   accept "0"
+            <|> (:)
+            <$> foldr ((<|>) . char) (failure []) "123456789"
+            <*> many (foldr ((<|>) . char) (failure []) "0123456789")
+            )
+    unOpParser =
+      UnOp
+        <$> foldr
+              (\unOperator ->
+                (accept (show unOperator) *> success unOperator <|>)
+              )
+              empty
+              [Neg, Not]
+        <*  many spaceParser
+        <*> expressionParser
+    lIdentifierParser = do
+      initial <- headParser
+      unless (isLower initial || initial == '_')
+        $ failure ["expected a lower character or underscore"]
+      rest <- many $ do
+        subsequent <- headParser
+        guard $ isAlphaNum subsequent
+        return subsequent
+      let identifier = initial : rest
+      guardNotReserved identifier
+      return identifier
+    rIdentifierParser = do
+      initial <- headParser
+      unless (isAlpha initial || initial == '_')
+        $ failure ["expected a lower character or underscore"]
+      rest <- many $ do
+        subsequent <- headParser
+        guard $ isAlphaNum subsequent
+        return subsequent
+      let identifier = initial : rest
+      guardNotReserved identifier
+      return identifier
+    patternParser =
+      VariablePattern
+        <$> lIdentifierParser
+        <|> ConstructorPattern
+        <$> typeIdentifierParser
+        <*> pure []
+        <|> bracketed headPatternParser
+    headPatternParser =
+      ConstructorPattern
+        <$> typeIdentifierParser
+        <*> many patternParser
+        <|> bracketed headPatternParser
+        <|> patternParser
+    letParser = do
+      _    <- accept "let"
+      _    <- some spaceParser
+      let_ <-
+        (do
+          identifier <- lIdentifierParser
+          patterns   <- many $ some spaceParser *> patternParser
+          return $ \source ->
+            Let (VariablePattern identifier) $ foldr Function source patterns
         )
-  in  runParserUntilEof expressionParser
+        <|> Let
+        <$> patternParser
+      _      <- many spaceParser
+      _      <- accept "="
+      _      <- many spaceParser
+      source <- expressionParser
+      _      <- some spaceParser
+      _      <- accept "in"
+      _      <- some spaceParser
+      let_ source <$> expressionParser
+    ifParser = do
+      _     <- accept "if"
+      _     <- some spaceParser
+      if_   <- headTermParser
+      _     <- some spaceParser
+      _     <- accept "then"
+      _     <- some spaceParser
+      then_ <- headTermParser
+      _     <- some spaceParser
+      _     <- accept "else"
+      _     <- some spaceParser
+      else_ <- headTermParser
+      return $ If if_ then_ else_
+    termParser =
+      bracketed expressionParser
+        <|> primaryParser
+        <|> Identifier
+        <$> rIdentifierParser
+        <|> unOpParser
+        <|> letParser
+        <|> ifParser
+    headTermParser =
+      foldl Application <$> termParser <*> many (some spaceParser *> termParser)
+    expressionParser = expression
+      [ (RAssoc, [(accept "||", BinOp Disj)])
+      , (RAssoc, [(accept "&&", BinOp Conj)])
+      , ( NAssoc
+        , [ (accept "==", BinOp Eq)
+          , (accept "/=", BinOp Neq)
+          , (accept "<=", BinOp Le)
+          , (accept "<" , BinOp Lt)
+          , (accept ">=", BinOp Ge)
+          , (accept ">" , BinOp Gt)
+          , (accept "-" , BinOp Minus)
+          ]
+        )
+      , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
+      , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
+      , (RAssoc, [(accept "^", BinOp Pow)])
+      , (LAssoc, [(some spaceParser, Application)])
+      ]
+      headTermParser
+  in
+    runParserUntilEof $ many spaceParser *> expressionParser <* many spaceParser
 
 optimizeExpression :: EAst Integer String -> EAst Integer String
 optimizeExpression (BinOp Sum value (Primary 0)) = optimizeExpression value
@@ -218,7 +376,7 @@ executeExpression =
       <|> identifierParser
       )
   in
-    runParserUntilEof expressionParser
+    runParserUntilEof $ many spaceParser *> expressionParser <* many spaceParser
  where
   relation operator a b context =
     if (operator `on` ($ context)) a b then 1 else 0
@@ -264,6 +422,19 @@ instance (Show a, Show identifier) => Show (EAst a identifier) where
           UnOp op v             -> printf "%s\n%s" (show op) (show' (ident n) v)
           Primary    x          -> show x
           Identifier identifier -> show identifier
+          Function pattern expression ->
+            printf "%s ->\n%s" (show pattern) (show' (ident n) expression)
+          Application function argument -> printf "@\n%s\n%s"
+                                                  (show' (ident n) function)
+                                                  (show' (ident n) argument)
+          Let pattern source target -> printf "let %s in\n%s\n=\n%s"
+                                              (show pattern)
+                                              (show' (ident n) source)
+                                              (show' (ident n) target)
+          If if_ then_ else_ -> printf "if\n%s\nthen\n%s\nelse\n%s"
+                                       (show' (ident n) if_)
+                                       (show' (ident n) then_)
+                                       (show' (ident n) else_)
         )
     ident = (+ 1)
 

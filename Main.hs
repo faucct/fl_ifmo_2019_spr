@@ -1,5 +1,6 @@
 module Main where
 
+import           Combinators
 import           Data.Either
 import           Data.Function
 import           Data.List
@@ -19,7 +20,7 @@ main = do
   print $ parseExpression "1 && 1 || 2"
   print $ executeExpression "1&&2" <*> pure Map.empty
   print $ executeExpression "(1+2)*(3+4)\n" <*> pure Map.empty
-  print $ Left ["Remaining input: abc"] == parseExpression " 1 abc"
+  print $ parseExpression " 1 abc"
   print $ Right (UnOp Neg (Identifier "foo")) == parseExpression "-foo"
   print
     $   (-1 ==)
@@ -51,3 +52,8 @@ main = do
       putStrLn ""
     )
     fileNames
+  print $ runParser typeSystemParser "data Empty"
+  print $ runParser typeSystemParser "data Foo = Foo | Bar (((Foo))) Empty"
+  print $ runParser typeSystemParser "type AlsoFoo = (Foo)"
+  print $ parseExpression "let function Foo = Bar Foo in function Foo1 Foo2"
+  print $ parseExpression "if 1 then 0 else 1"

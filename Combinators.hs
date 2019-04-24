@@ -67,7 +67,8 @@ expression associatedOperators primaryParser =
                                                     RAssoc ->
                                                         return
                                                             $ prevOperator
-                                                            . operator leftPrimary
+                                                            . operator
+                                                                  leftPrimary
                                                 )
                                                 prevOperator
                                 )
@@ -84,17 +85,16 @@ expression associatedOperators primaryParser =
             symbol : rest | isSpace symbol -> Right (rest, symbol)
             _                              -> Left empty
         spaced parser = many space *> parser <* many space
-        expressionParser = withStack emptyStack
     in
-        spaced expressionParser
+        withStack emptyStack
+
+eofParser :: Parser String [String] ()
+eofParser = Parser $ \case
+    ""   -> Right ("", ())
+    rest -> Left ["Remaining input: " ++ rest]
 
 runParserUntilEof :: Parser String [String] ok -> String -> Either [String] ok
-runParserUntilEof p inp = either
-    Left
-    (\(rest, ok) ->
-        if null rest then Right ok else Left ["Remaining input: " ++ rest]
-    )
-    (runParser p inp)
+runParserUntilEof parser input = snd <$> runParser (parser <* eofParser) input
 
 withLineAndColumn :: [Char] -> [((Int, Int), Char)]
 withLineAndColumn string = zip
@@ -214,3 +214,17 @@ accept
     => [token]
     -> Parser [tokenContainer] (err String) [token]
 accept = foldr ((<*>) . (pure (:) <*>) . token) (success [])
+
+headParser
+    :: ( Eq token
+       , Show token
+       , Applicative err
+       , TokenContainer tokenContainer token
+       )
+    => Parser [tokenContainer] (err String) token
+headParser = Parser $ \case
+    (token : rest) -> Right (rest, getToken token)
+    _              -> Left $ pure "expected non-empty input"
+
+manyUntil stopParser parser =
+    (:) <$> parser <*> manyUntil stopParser parser <|> stopParser *> pure []
