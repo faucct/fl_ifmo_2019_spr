@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Expression where
 
 import           Text.Printf
@@ -7,7 +10,9 @@ import           Combinators
 import           Control.Applicative
 import           Control.Monad
 import           Data.Char
+import           Data.Either
 import           Data.Function
+import           Data.List
 import           Combinators
 import           Data.Functor.Compose
 import           Data.Map                       ( Map )
@@ -60,17 +65,25 @@ spaceParser = Parser $ \case
   _                              -> Left empty
 
 infixl 4 :@>
+infixr 3 :->
 
-newtype Fix f = Fix (f (Fix f))
-data DataType = DataType String (Map String [TypeReference]) deriving Show
-data TypeReference = TypeReference String | TypeReference :@> TypeReference deriving Show
-data TypeAlias = TypeAlias String TypeReference deriving Show
+newtype Fix f = Fix { unFix :: (f (Fix f))}
 
-typeReferenceParser :: Parser String [String] TypeReference
+instance Eq (f (Fix f)) => Eq (Fix f) where
+  (==) = (==) `on` unFix
+
+data DataType value = DataType String (Map String [TypeReference value]) deriving (Show, Eq, Functor, Foldable, Traversable)
+intDataType = Fix $ DataType "Int" Map.empty
+boolDataType =
+  Fix $ DataType "Bool" $ Map.fromList [("True", []), ("False", [])]
+data TypeReference value = TypeReference value | TypeReference value :@> TypeReference value | TypeReference value :-> TypeReference value deriving (Show, Eq, Functor, Foldable, Traversable)
+data TypeAlias value = TypeAlias String (TypeReference value) deriving Show
+
+typeReferenceParser :: Parser String [String] (TypeReference String)
 typeReferenceParser =
   TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser
 
-headTypeReferenceParser :: Parser String [String] TypeReference
+headTypeReferenceParser :: Parser String [String] (TypeReference String)
 headTypeReferenceParser = expression
   [(LAssoc, [(some spaceParser, (:@>))])]
   (TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser)
@@ -91,7 +104,7 @@ typeIdentifierParser = do
   guardNotReserved identifier
   return identifier
 
-dataDefinitionParser :: Parser String [String] DataType
+dataDefinitionParser :: Parser String [String] (DataType String)
 dataDefinitionParser =
   let constructorParser = do
         constructor <- typeIdentifierParser
@@ -120,7 +133,7 @@ dataDefinitionParser =
           <|> success []
       return $ DataType typeIdentifier $ Map.fromList constructors
 
-typeAliasParser :: Parser String [String] TypeAlias
+typeAliasParser :: Parser String [String] (TypeAlias String)
 typeAliasParser = do
   _              <- accept "type"
   _              <- some spaceParser
@@ -130,7 +143,8 @@ typeAliasParser = do
   _              <- many spaceParser
   TypeAlias typeIdentifier <$> headTypeReferenceParser
 
-typeSystemParser :: Parser String [String] [Either DataType TypeAlias]
+type TypeSystem value = [Either (DataType value) (TypeAlias value)]
+typeSystemParser :: Parser String [String] (TypeSystem String)
 typeSystemParser =
   many spaceParser
     *> (   success []
@@ -143,16 +157,16 @@ typeSystemParser =
                  )
        )
 
-data Pattern identifier = VariablePattern identifier | ConstructorPattern identifier [Pattern identifier] deriving (Eq, Show)
+data Pattern identifier pattern = VariablePattern pattern | ConstructorPattern identifier [Pattern identifier pattern] deriving (Eq, Show)
 
 -- Simplest abstract syntax tree for expressions: only binops are allowed
 data EAst a identifier = BinOp BinOperator (EAst a identifier) (EAst a identifier)
             | UnOp UnOperator (EAst a identifier)
             | Primary a
             | Identifier identifier
-            | Function (Pattern identifier) (EAst a identifier)
+            | Function (Pattern identifier (identifier, TypeReference String)) (EAst a identifier)
             | Application (EAst a identifier) (EAst a identifier)
-            | Let (Pattern identifier) (EAst a identifier) (EAst a identifier)
+            | Let (Pattern identifier identifier) (EAst a identifier) (EAst a identifier)
             | If (EAst a identifier) (EAst a identifier) (EAst a identifier)
         deriving (Eq)
 
@@ -207,31 +221,43 @@ parseExpression =
       let identifier = initial : rest
       guardNotReserved identifier
       return identifier
-    patternParser =
+    patternParser variableParser headVariableParser =
       VariablePattern
-        <$> lIdentifierParser
+        <$> variableParser
         <|> ConstructorPattern
         <$> typeIdentifierParser
         <*> pure []
-        <|> bracketed headPatternParser
-    headPatternParser =
+        <|> bracketed (headPatternParser variableParser headVariableParser)
+    headPatternParser variableParser headVariableParser =
       ConstructorPattern
         <$> typeIdentifierParser
-        <*> many patternParser
-        <|> bracketed headPatternParser
-        <|> patternParser
+        <*> many (patternParser variableParser headVariableParser)
+        <|> VariablePattern
+        <$> headVariableParser
+        <|> bracketed (headPatternParser variableParser headVariableParser)
+        <|> patternParser variableParser headVariableParser
     letParser = do
       _    <- accept "let"
       _    <- some spaceParser
       let_ <-
         (do
+          let parameterParser = do
+                parameter <- lIdentifierParser
+                _ <- many $ spaceParser
+                _ <- accept ":"
+                _ <- many $ spaceParser
+                typeReference <- typeReferenceParser
+                return $ (parameter, typeReference)
           identifier <- lIdentifierParser
-          patterns   <- many $ some spaceParser *> patternParser
+          patterns   <-
+            many
+            $  some spaceParser
+            *> patternParser (bracketed parameterParser) parameterParser
           return $ \source ->
             Let (VariablePattern identifier) $ foldr Function source patterns
         )
         <|> Let
-        <$> patternParser
+        <$> patternParser lIdentifierParser lIdentifierParser
       _      <- many spaceParser
       _      <- accept "="
       _      <- many spaceParser
