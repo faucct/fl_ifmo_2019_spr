@@ -54,6 +54,25 @@ main = do
     fileNames
   print $ runParser typeSystemParser "data Empty"
   print $ runParser typeSystemParser "data Foo = Foo | Bar (((Foo))) Empty"
-  print $ parseExpression "let function Foo = Bar Foo in function Foo1 Foo2"
-  print $ parseExpression "let function (x : Foo) = Bar Foo in function Foo1 Foo2"
+  print $ parseExpression "let function (Foo : Foo) = Bar Foo in function Foo"
+  print
+    $ parseExpression "let function (x : Foo) = Bar Foo in function Foo"
   print $ parseExpression "if 1 then 0 else 1"
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Empty; data Foo = Foo | Bar (((Foo))) Empty"
+    parseExpression "let function (x : Foo) = Bar Foo in function Foo"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Empty; data Foo = Foo | Bar (((Foo))) Empty"
+    parseExpression "let function (Bar foo empty : Foo) = empty in function Foo"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
+  print
+    $   parseExpression "if True then 0 else 1"
+    >>= maybe (Left ["failed to infer"]) Right
+    .   infer0 []
