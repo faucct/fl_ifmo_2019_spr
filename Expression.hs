@@ -98,7 +98,7 @@ typeReferenceParser =
 
 headTypeReferenceParser :: Parser String [String] (TypeReference String)
 headTypeReferenceParser = expression
-  [(LAssoc, [(some spaceParser, (:@>))])]
+  [(RAssoc, [(accept "->", (:->))]), (LAssoc, [(some spaceParser, (:@>))])]
   (TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser)
 
 guardNotReserved identifier =

@@ -76,3 +76,4 @@ main = do
     $   parseExpression "if True then 0 else 1"
     >>= maybe (Left ["failed to infer"]) Right
     .   infer0 []
+  print $ runParser typeSystemParser "data IntEndo = IntEndo (Int -> Int)"
