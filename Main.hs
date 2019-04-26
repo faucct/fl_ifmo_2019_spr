@@ -54,7 +54,6 @@ main = do
     fileNames
   print $ runParser typeSystemParser "data Empty"
   print $ runParser typeSystemParser "data Foo = Foo | Bar (((Foo))) Empty"
-  print $ runParser typeSystemParser "type AlsoFoo = (Foo)"
   print $ parseExpression "let function Foo = Bar Foo in function Foo1 Foo2"
   print $ parseExpression "let function (x : Foo) = Bar Foo in function Foo1 Foo2"
   print $ parseExpression "if 1 then 0 else 1"

@@ -72,12 +72,15 @@ newtype Fix f = Fix { unFix :: (f (Fix f))}
 instance Eq (f (Fix f)) => Eq (Fix f) where
   (==) = (==) `on` unFix
 
-data DataType value = DataType String (Map String [TypeReference value]) deriving (Show, Eq, Functor, Foldable, Traversable)
+data DataType value = DataType String (Map String [TypeReference value]) deriving (Show, Functor, Foldable, Traversable)
+
+instance Eq (DataType value) where
+  DataType dataType1 _ == DataType dataType2 _ = dataType1 == dataType2
+
 intDataType = Fix $ DataType "Int" Map.empty
 boolDataType =
   Fix $ DataType "Bool" $ Map.fromList [("True", []), ("False", [])]
 data TypeReference value = TypeReference value | TypeReference value :@> TypeReference value | TypeReference value :-> TypeReference value deriving (Show, Eq, Functor, Foldable, Traversable)
-data TypeAlias value = TypeAlias String (TypeReference value) deriving Show
 
 typeReferenceParser :: Parser String [String] (TypeReference String)
 typeReferenceParser =
@@ -133,28 +136,22 @@ dataDefinitionParser =
           <|> success []
       return $ DataType typeIdentifier $ Map.fromList constructors
 
-typeAliasParser :: Parser String [String] (TypeAlias String)
-typeAliasParser = do
-  _              <- accept "type"
-  _              <- some spaceParser
-  typeIdentifier <- typeIdentifierParser
-  _              <- many spaceParser
-  _              <- accept "="
-  _              <- many spaceParser
-  TypeAlias typeIdentifier <$> headTypeReferenceParser
-
-type TypeSystem value = [Either (DataType value) (TypeAlias value)]
+type TypeSystem value = [DataType value]
 typeSystemParser :: Parser String [String] (TypeSystem String)
 typeSystemParser =
   many spaceParser
     *> (   success []
        <*  eofParser
-       <|> let parser =
-                 Left <$> dataDefinitionParser <|> Right <$> typeAliasParser
-           in  (:) <$> parser <* many spaceParser <*> manyUntil
-                 eofParser
-                 (accept ";" *> many spaceParser *> parser <* many spaceParser
-                 )
+       <|> (:)
+       <$> dataDefinitionParser
+       <*  many spaceParser
+       <*> manyUntil
+             eofParser
+             (  accept ";"
+             *> many spaceParser
+             *> dataDefinitionParser
+             <* many spaceParser
+             )
        )
 
 data Pattern identifier pattern = VariablePattern pattern | ConstructorPattern identifier [Pattern identifier pattern] deriving (Eq, Show)
