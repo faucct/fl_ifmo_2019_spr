@@ -186,7 +186,8 @@ executeExpression =
             )
           ]
         <*  many space
-        <*> expressionParser
+        <*> (primaryParser <|> identifierParser <|> bracketed expressionParser
+        )
     identifierParser =
       curry (flip (Map.!) . uncurry (:))
         <$> (Parser $ \case
