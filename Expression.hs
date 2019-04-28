@@ -89,8 +89,9 @@ parseExpression =
                   )
                   empty
                   [Neg, Not]
-            <*  many space
-            <*> expressionParser
+            <* many space
+            <*> (primaryParser <|> identifierParser <|> bracketed expressionParser
+                )
       identifierParser =
           curry (Identifier . uncurry (:))
             <$> (Parser $ \case
@@ -128,26 +129,31 @@ parseExpression =
   in  runParserUntilEof expressionParser
 
 optimizeExpression :: EAst Integer String -> EAst Integer String
-optimizeExpression (BinOp Sum value (Primary 0)) = optimizeExpression value
-optimizeExpression (BinOp Sum (Primary 0) value) = optimizeExpression value
-optimizeExpression (BinOp Mul (Primary 0) _) = Primary 0
-optimizeExpression (BinOp Mul _ (Primary 0)) = Primary 0
-optimizeExpression (BinOp Mul value (Primary 1)) = optimizeExpression value
-optimizeExpression (BinOp Mul (Primary 1) value) = optimizeExpression value
-optimizeExpression (BinOp operator left right) =
-  let optimizedLeft  = optimizeExpression left
-      optimizedRight = optimizeExpression right
-  in  case optimizedLeft of
-        Primary leftPrimary | Primary rightPrimary <- optimizedRight ->
-          Primary $ binOperatorConstructor operator leftPrimary rightPrimary
-        _ -> BinOp operator optimizedLeft optimizedRight
+optimizeExpression primary@(   Primary    _) = primary
+optimizeExpression identifier@(Identifier _) = identifier
+optimizeExpression (BinOp op left right) =
+  let
+    optimizedLeft  = optimizeExpression left
+    optimizedRight = optimizeExpression right
+  in
+    case op of
+      Sum | optimizedLeft == Primary 0  -> optimizedRight
+      Sum | optimizedRight == Primary 0 -> optimizedLeft
+      Mul | optimizedLeft == Primary 0 || optimizedRight == Primary 0 ->
+        Primary 0
+      Mul | optimizedLeft == Primary 1  -> optimizedRight
+      Mul | optimizedRight == Primary 1 -> optimizedLeft
+      _
+        | Primary leftPrimary <- optimizedLeft, Primary rightPrimary <-
+          optimizedRight
+        -> Primary $ binOperatorConstructor op leftPrimary rightPrimary
+      _ -> BinOp op optimizedLeft optimizedRight
 optimizeExpression (UnOp operator value) =
   let optimizedValue = optimizeExpression value
   in  case optimizedValue of
         Primary primaryValue ->
           Primary $ unOperatorConstructor operator primaryValue
         _ -> UnOp operator optimizedValue
-optimizeExpression value = value
 
 -- Change the signature if necessary
 -- Calculates the value of the input expression
