@@ -438,12 +438,12 @@ infer0 typeSystem expression = do
       extractingIdentifiers (left :@> right) =
         ((.) `on` extractingIdentifiers) left right
       unresolvedIdentifiers =
-        (foldr extractingIdentifiers [] $ foldr
+        (nub $ foldr extractingIdentifiers [] $ foldr
             (\(DataType _ constructors) -> \prev -> foldr (++) prev constructors)
             []
             extendedTypeSystem
           )
-          \\ map (\(DataType identifier _) -> identifier) typeSystem
+          \\ map (\(DataType identifier _) -> identifier) extendedTypeSystem
   unless (null unresolvedIdentifiers) $ Nothing
   let resolve (TypeReference identifier) =
         TypeReference $ Fix $ (Map.!) indexedResolvedTypeSystem identifier

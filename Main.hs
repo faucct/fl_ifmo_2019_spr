@@ -77,3 +77,10 @@ main = do
     >>= maybe (Left ["failed to infer"]) Right
     .   infer0 []
   print $ runParser typeSystemParser "data IntEndo = IntEndo (Int -> Int)"
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
+    parseExpression "let id (z : Nat) = z in id Z"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
