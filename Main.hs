@@ -84,3 +84,22 @@ main = do
     parseExpression "let id (z : Nat) = z in id Z"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
+    parseExpression "let id (z : Nat) = z in \
+    \ let map (f : NatEndo) (l : List) = 13 in \
+    \ map (NatEndo id) (Nil)"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
+    parseExpression "let id (z : Nat) = z in \
+      \ let map (NatEndo f : NatEndo) (Nil : List) = Nil in \
+      \ let map (NatEndo f : NatEndo) (Cons hd tl : List) = Cons (f hd) (map (NatEndo f) tl) in \
+      \ map (NatEndo id) (Cons Z (Cons (S Z) Nil))"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
