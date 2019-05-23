@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Expression where
 
@@ -173,7 +174,7 @@ data EAst a identifier = BinOp BinOperator (EAst a identifier) (EAst a identifie
             | Identifier identifier
             | Function (Pattern identifier identifier) (TypeReference identifier) (EAst a identifier)
             | Application (EAst a identifier) (EAst a identifier)
-            | Let (Pattern identifier identifier) (EAst a identifier) (EAst a identifier)
+            | Let (Pattern identifier identifier) (EAst a identifier) (TypeReference identifier) (EAst a identifier)
             | If (EAst a identifier) (EAst a identifier) (EAst a identifier)
         deriving (Eq)
 
@@ -251,7 +252,7 @@ parseExpression =
     letParser = do
       _    <- accept "let"
       _    <- some spaceParser
-      let_ <-
+      (let_, parameterTypes) <-
         (do
           let parameterParser = do
                 parameter     <- headPatternParser
@@ -265,19 +266,24 @@ parseExpression =
             many
             $  some spaceParser
             *> (bracketed $ spaced parameterParser)
-          return $ \source ->
-            Let (VariablePattern identifier) $ foldr (uncurry Function) source patterns
+          return $ (\source ->
+            Let (VariablePattern identifier) $ foldr (uncurry Function) source patterns,
+            map snd patterns)
         )
-        <|> Let
+        <|> (, []) . Let
         <$> patternParser
       _      <- many spaceParser
       _      <- accept "="
       _      <- many spaceParser
       source <- expressionParser
+      _ <- many spaceParser
+      _ <- accept ":"
+      _ <- many spaceParser
+      returnTypeReference <- headTypeReferenceParser
       _      <- some spaceParser
       _      <- accept "in"
       _      <- some spaceParser
-      let_ source <$> expressionParser
+      let_ source (foldr (:->) returnTypeReference parameterTypes) <$> expressionParser
     ifParser = do
       _     <- accept "if"
       _     <- some spaceParser
@@ -407,9 +413,11 @@ infer typeSystem =
       = Just thenType
     infer context (Identifier identifier)
       | Just type_ <- Map.lookup identifier context = Just $ type_
-    infer context (Let pattern source target)
-      | Just sourceType <- infer context source
-      , Just env <- applyPattern pattern sourceType
+    infer context (Let pattern source returnType target)
+      | Just resolvedReturnType <- resolveTypeReference typeSystem returnType
+      , Just env <- applyPattern pattern resolvedReturnType
+      , Just sourceType <- infer (Map.union env context) source
+      , resolvedReturnType == sourceType
       , Just targetType <- infer (Map.union env context) target
       = Just targetType
     infer context (Function pattern parameterType value)
@@ -608,9 +616,10 @@ instance (Show a, Show identifier) => Show (EAst a identifier) where
           Application function argument -> printf "@\n%s\n%s"
                                                   (show' (ident n) function)
                                                   (show' (ident n) argument)
-          Let pattern source target -> printf "let %s in\n%s\n=\n%s"
+          Let pattern source returnType target -> printf "let %s =\n%s : %s in\n%s\n"
                                               (show pattern)
                                               (show' (ident n) source)
+                                              (show returnType)
                                               (show' (ident n) target)
           If if_ then_ else_ -> printf "if\n%s\nthen\n%s\nelse\n%s"
                                        (show' (ident n) if_)

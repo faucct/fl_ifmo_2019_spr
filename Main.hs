@@ -54,22 +54,22 @@ main = do
     fileNames
   print $ runParser typeSystemParser "data Empty"
   print $ runParser typeSystemParser "data Foo = Foo | Bar (((Foo))) Empty"
-  print $ parseExpression "let function (Foo : Foo) = Bar Foo in function Foo"
+  print $ parseExpression "let function (Foo : Foo) = Bar Foo : Foo in function Foo"
   print
-    $ parseExpression "let function (x : Foo) = Bar Foo in function Foo"
+    $ parseExpression "let function (x : Foo) = Bar Foo : Empty -> Foo in function Foo"
   print $ parseExpression "if 1 then 0 else 1"
   print $ do
     typeSystem <- runParserUntilEof
       typeSystemParser
       "data Empty; data Foo = Foo | Bar (((Foo))) Empty"
-    parseExpression "let function (x : Foo) = Bar Foo in function Foo"
+    parseExpression "let function (x : Foo) = Bar Foo : Empty -> Foo in function Foo"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
   print $ do
     typeSystem <- runParserUntilEof
       typeSystemParser
       "data Empty; data Foo = Foo | Bar (((Foo))) Empty"
-    parseExpression "let function (Bar foo empty : Foo) = empty in function Foo"
+    parseExpression "let function (Bar foo empty : Foo) = empty : Empty in function Foo"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
   print
@@ -81,15 +81,15 @@ main = do
     typeSystem <- runParserUntilEof
       typeSystemParser
       "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
-    parseExpression "let id (z : Nat) = z in id Z"
+    parseExpression "let id (z : Nat) = z : Nat in id Z"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
   print $ do
     typeSystem <- runParserUntilEof
       typeSystemParser
       "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
-    parseExpression "let id (z : Nat) = z in \
-    \ let map (f : NatEndo) (l : List) = 13 in \
+    parseExpression "let id (z : Nat) = z : Nat in \
+    \ let map (f : NatEndo) (l : List) = 13 : Int in \
     \ map (NatEndo id) (Nil)"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
@@ -97,9 +97,21 @@ main = do
     typeSystem <- runParserUntilEof
       typeSystemParser
       "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
-    parseExpression "let id (z : Nat) = z in \
-      \ let map (NatEndo f : NatEndo) (Nil : List) = Nil in \
-      \ let map (NatEndo f : NatEndo) (Cons hd tl : List) = Cons (f hd) (map (NatEndo f) tl) in \
+    parseExpression "let id (z : Nat) = z : Nat in \
+      \ let map (NatEndo f : NatEndo) (Nil : List) = Nil : List in \
+      \ let map (NatEndo f : NatEndo) (Cons hd tl : List) = Cons (f hd) (map (NatEndo f) tl) : List in \
       \ map (NatEndo id) (Cons Z (Cons (S Z) Nil))"
+      >>= maybe (Left ["failed to infer"]) Right
+      .   infer0 typeSystem
+  print $ do
+    typeSystem <- runParserUntilEof
+      typeSystemParser
+      "data Nat = Z | S Nat; data List = Nil | Cons Nat List; data NatEndo = NatEndo (Nat -> Nat)"
+    parseExpression "let succ (x : Nat) = S x : Nat in \
+      \ let lt (Z : Nat) (Z : Nat) = False : Bool in \
+      \ let lt (Z : Nat) (S x : Nat) = True : Bool in \
+      \ let lt (S x : Nat) (S y : Nat) = lt x y : Bool in \
+      \ let makeList (x : Nat) (y : Nat) = makeList (succ x) y : List in \
+      \ makeList Z Z"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
