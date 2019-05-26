@@ -61,11 +61,54 @@ unOperatorConstructor :: UnOperator -> Integer -> Integer
 unOperatorConstructor Neg = negate
 unOperatorConstructor Not = \value -> if value == 0 then 1 else 0
 
+nestedCommentParsers = True
+
 spaceParser
-  :: (Alternative error, TokenContainer tokenContainer Char) => Parser [tokenContainer] (error a) Char
-spaceParser = Parser $ \case
-  symbol : rest | isSpace $ getToken symbol -> Right (rest, getToken symbol)
-  _ -> Left empty
+  :: (Alternative error, TokenContainer tokenContainer Char)
+  => Parser [tokenContainer] (error String) Char
+spaceParser =
+  let spaceCharParser =
+          (Parser $ \case
+            symbol : rest | isSpace $ getToken symbol ->
+              Right (rest, getToken symbol)
+            _ -> Left empty
+          )
+      singleLineCommentParser =
+          success '\n'
+            <* accept "--"
+            <* many
+                 (Parser $ \case
+                   notN : rest | getToken notN /= '\n' -> Right (rest, ())
+                   _ -> Left empty
+                 )
+            <* (void (char '\n') <|> void eofParser)
+      multilineCommentParser =
+          success '{'
+            <* accept "{-"
+            <* many
+                 (Parser $ \case
+                   tokens | "-}" /= (map getToken $ take 2 tokens) ->
+                     Right (tail tokens, ())
+                   _ -> Left empty
+                 )
+            <* accept "-}"
+      nestedMultilineCommentParser =
+          success '{'
+            <* accept "{-"
+            <* many
+                 (   nestedMultilineCommentParser
+                 <|> (Parser $ \case
+                       tokens
+                         | "-}" /= (map getToken $ take 2 tokens)
+                         , "{-" /= (map getToken $ take 2 tokens)
+                         -> Right (tail tokens, getToken $ head tokens)
+                       _ -> Left empty
+                     )
+                 )
+            <* accept "-}"
+  in  spaceCharParser <|> singleLineCommentParser <|> if nestedCommentParsers
+        then nestedMultilineCommentParser
+        else multilineCommentParser
 
 infixl 4 :@>
 infixr 3 :->
@@ -250,8 +293,8 @@ parseExpression =
         <*> many (some spaceParser *> patternParser)
         <|> (bracketed $ spaced headPatternParser)
     letParser = do
-      _    <- accept "let"
-      _    <- some spaceParser
+      _                      <- accept "let"
+      _                      <- some spaceParser
       (let_, parameterTypes) <-
         (do
           let parameterParser = do
@@ -263,27 +306,29 @@ parseExpression =
                 return $ (parameter, typeReference)
           identifier <- lIdentifierParser
           patterns   <-
-            many
-            $  some spaceParser
-            *> (bracketed $ spaced parameterParser)
-          return $ (\source ->
-            Let (VariablePattern identifier) $ foldr (uncurry Function) source patterns,
-            map snd patterns)
+            many $ some spaceParser *> (bracketed $ spaced parameterParser)
+          return
+            $ ( \source -> Let (VariablePattern identifier)
+                $ foldr (uncurry Function) source patterns
+              , map snd patterns
+              )
         )
-        <|> (, []) . Let
+        <|> (, [])
+        .   Let
         <$> patternParser
-      _      <- many spaceParser
-      _      <- accept "="
-      _      <- many spaceParser
-      source <- expressionParser
-      _ <- many spaceParser
-      _ <- accept ":"
-      _ <- many spaceParser
+      _                   <- many spaceParser
+      _                   <- accept "="
+      _                   <- many spaceParser
+      source              <- expressionParser
+      _                   <- many spaceParser
+      _                   <- accept ":"
+      _                   <- many spaceParser
       returnTypeReference <- headTypeReferenceParser
-      _      <- some spaceParser
-      _      <- accept "in"
-      _      <- some spaceParser
-      let_ source (foldr (:->) returnTypeReference parameterTypes) <$> expressionParser
+      _                   <- some spaceParser
+      _                   <- accept "in"
+      _                   <- some spaceParser
+      let_ source (foldr (:->) returnTypeReference parameterTypes)
+        <$> expressionParser
     ifParser = do
       _     <- accept "if"
       _     <- some spaceParser
@@ -369,9 +414,9 @@ applyPattern (ConstructorPattern identifier patterns) (TypeReference (Fix (DataT
 applyPattern _ _ = Nothing
 
 resolveTypeReference typeSystem = resolve where
-  resolve (TypeReference identifier) = 
+  resolve (TypeReference identifier) =
     TypeReference
-      . Fix
+      .   Fix
       <$> (find (\(DataType dataType _) -> dataType == identifier) typeSystem)
   resolve (left :-> right) = (:->) <$> resolve left <*> resolve right
   resolve (left :@> right) = (:@>) <$> resolve left <*> resolve right
@@ -421,7 +466,8 @@ infer typeSystem =
       , Just targetType <- infer (Map.union env context) target
       = Just targetType
     infer context (Function pattern parameterType value)
-      | Just resolvedParameterType <- resolveTypeReference typeSystem parameterType
+      | Just resolvedParameterType <- resolveTypeReference typeSystem
+                                                           parameterType
       , Just env <- applyPattern pattern resolvedParameterType
       , Just valueType <- infer (Map.union env context) value
       = Just $ resolvedParameterType :-> valueType
@@ -501,9 +547,6 @@ optimizeExpression value = value
 executeExpression :: String -> Either [String] (Map String Integer -> Integer)
 executeExpression =
   let
-    space = Parser $ \case
-      symbol : rest | isSpace symbol -> Right (rest, symbol)
-      _                              -> Left empty
     primaryParser =
       const
         <$> (   read
@@ -526,7 +569,7 @@ executeExpression =
               _ -> 0
             )
           ]
-        <*  many space
+        <*  many spaceParser
         <*> expressionParser
     identifierParser =
       curry (flip (Map.!) . uncurry (:))
@@ -611,16 +654,20 @@ instance (Show a, Show identifier) => Show (EAst a identifier) where
           UnOp op v             -> printf "%s\n%s" (show op) (show' (ident n) v)
           Primary    x          -> show x
           Identifier identifier -> show identifier
-          Function pattern parameterType expression ->
-            printf "(%s : %s) ->\n%s" (show pattern) (show parameterType) (show' (ident n) expression)
+          Function pattern parameterType expression -> printf
+            "(%s : %s) ->\n%s"
+            (show pattern)
+            (show parameterType)
+            (show' (ident n) expression)
           Application function argument -> printf "@\n%s\n%s"
                                                   (show' (ident n) function)
                                                   (show' (ident n) argument)
-          Let pattern source returnType target -> printf "let %s =\n%s : %s in\n%s\n"
-                                              (show pattern)
-                                              (show' (ident n) source)
-                                              (show returnType)
-                                              (show' (ident n) target)
+          Let pattern source returnType target -> printf
+            "let %s =\n%s : %s in\n%s\n"
+            (show pattern)
+            (show' (ident n) source)
+            (show returnType)
+            (show' (ident n) target)
           If if_ then_ else_ -> printf "if\n%s\nthen\n%s\nelse\n%s"
                                        (show' (ident n) if_)
                                        (show' (ident n) then_)
@@ -639,3 +686,62 @@ show (BinOp Conj (BinOp Pow (Primary 1) (BinOp Sum (Primary 2) (Primary 3))) (Pr
 | | |_3
 |_4
 -}
+
+data Assoc = LAssoc -- left associativity
+           | RAssoc -- right associativity
+           | NAssoc -- not associative
+
+-- General parser combinator for expressions                      
+-- Binary operators are listed in the order of precedence (from lower to higher)
+-- Binary operators on the same level of precedence have the same associativity
+-- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
+expression
+  :: Alternative err
+  => [(Assoc, [(Parser String (err String) b, a -> a -> a)])]
+  -> Parser String (err String) a
+  -> Parser String (err String) a
+expression associatedOperators primaryParser =
+  let
+    emptyStack = repeat Nothing
+    withStack stack = do
+      primary         <- primaryParser
+      valueOrNewStack <- foldr
+        (\((assoc, operators), prevOperator) higherPriorityParser -> do
+          valueOrNewStack <- higherPriorityParser
+          case valueOrNewStack of
+            Left higherOperator -> do
+              let leftPrimary = higherOperator primary
+              operatorConstructor <- foldr
+                (\(parser, constructor) ->
+                  ((spaced parser *> success (Right constructor)) <|>)
+                )
+                (success $ Left $ maybe higherOperator
+                                        (. higherOperator)
+                                        prevOperator
+                )
+                operators
+              traverse
+                (\operator ->
+                  ((: emptyStack) . Just)
+                    <$> maybe
+                          (return $ operator leftPrimary)
+                          (\prevOperator -> case assoc of
+                            LAssoc ->
+                              return $ operator $ prevOperator leftPrimary
+                            NAssoc -> failure $ pure "non-associative operator"
+                            RAssoc ->
+                              return $ prevOperator . operator leftPrimary
+                          )
+                          prevOperator
+                )
+                operatorConstructor
+            Right newStack -> return $ Right $ prevOperator : newStack
+        )
+        (pure $ Left id)
+        (zip associatedOperators stack)
+      case valueOrNewStack of
+        Left  constructor -> return $ constructor primary
+        Right newStack    -> withStack newStack
+    spaced parser = many spaceParser *> parser <* many spaceParser
+  in
+    withStack emptyStack

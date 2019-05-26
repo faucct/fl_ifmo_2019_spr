@@ -115,3 +115,7 @@ main = do
       \ makeList Z Z"
       >>= maybe (Left ["failed to infer"]) Right
       .   infer0 typeSystem
+  print $ parseExpression "1 -- comment\n + 2"
+  if nestedCommentParsers
+  then print $ parseExpression "1 {- {- comment\n\n\n -} -} + 2"
+  else print $ parseExpression "1 {- {- comment\n\n\n -} + 2"
