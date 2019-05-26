@@ -121,38 +121,62 @@ instance Eq (f (Fix f)) => Eq (Fix f) where
 instance Show (f (Fix f)) => Show (Fix f) where
   show (Fix f) = show f
 
-data DataType identifier value = DataType identifier (Map identifier [TypeReference value]) deriving (Functor, Foldable, Traversable)
+data DataType identifier value = DataType identifier [identifier] (Map identifier [TypeReference value]) deriving (Functor, Foldable, Traversable)
 
 instance Eq identifier => Eq (DataType identifier value) where
-  DataType dataType1 _ == DataType dataType2 _ = dataType1 == dataType2
+  DataType dataType1 _ _ == DataType dataType2 _ _ = dataType1 == dataType2
 
 instance Show identifier => Show (DataType identifier value) where
-  show (DataType dataType _) = show dataType
+  show (DataType dataType _ _) = show dataType
 
-intDataType = DataType "Int" Map.empty
-boolDataType = DataType "Bool" $ Map.fromList [("True", []), ("False", [])]
+intDataType = DataType "Int" [] Map.empty
+boolDataType = DataType "Bool" [] $ Map.fromList [("True", []), ("False", [])]
 
-data TypeReference value = TypeReference value | TypeReference value :@> TypeReference value | TypeReference value :-> TypeReference value deriving (Show, Eq, Functor, Foldable, Traversable)
+data TypeReference value = TypeParameter String | TypeReference value | TypeReference value :@> TypeReference value | TypeReference value :-> TypeReference value deriving (Show, Eq, Functor, Foldable, Traversable)
 intTypeReference = TypeReference $ Fix $ intDataType
 boolTypeReference = TypeReference $ Fix $ boolDataType
 
 typeReferenceParser :: Parser String [String] (TypeReference String)
 typeReferenceParser =
-  TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser
+  TypeParameter
+    <$> lowerIdentifierParser
+    <|> TypeReference
+    <$> upperIdentifierParser
+    <|> bracketed headTypeReferenceParser
 
 headTypeReferenceParser :: Parser String [String] (TypeReference String)
 headTypeReferenceParser = expression
-  [(RAssoc, [(accept "->", (:->))]), (LAssoc, [(some spaceParser, (:@>))])]
-  (TypeReference <$> typeIdentifierParser <|> bracketed headTypeReferenceParser)
+  [(RAssoc, [(accept "->", (:->))])]
+  (   foldl (:@>)
+  <$> (   TypeParameter
+      <$> lowerIdentifierParser
+      <|> TypeReference
+      <$> upperIdentifierParser
+      <|> bracketed headTypeReferenceParser
+      )
+  <*> many (some spaceParser *> typeReferenceParser)
+  )
 
 guardNotReserved identifier =
   when (identifier `elem` ["let", "data", "type", "in", "if", "then", "else"])
     $ failure [identifier ++ " is a reserved keyword"]
 
-typeIdentifierParser :: Parser String [String] String
-typeIdentifierParser = do
+upperIdentifierParser :: Parser String [String] String
+upperIdentifierParser = do
   initial <- headParser
   unless (isUpper initial) $ failure ["expected upper"]
+  rest <- many $ do
+    subsequent <- headParser
+    guard $ isAlphaNum subsequent
+    return subsequent
+  let identifier = initial : rest
+  guardNotReserved identifier
+  return identifier
+
+lowerIdentifierParser :: Parser String [String] String
+lowerIdentifierParser = do
+  initial <- headParser
+  unless (isLower initial || initial == '_') $ failure ["expected upper"]
   rest <- many $ do
     subsequent <- headParser
     guard $ isAlphaNum subsequent
@@ -164,16 +188,17 @@ typeIdentifierParser = do
 dataDefinitionParser :: Parser String [String] (DataType String String)
 dataDefinitionParser =
   let constructorParser = do
-        constructor <- typeIdentifierParser
-        arguments   <- many (many spaceParser *> typeReferenceParser)
+        constructor <- upperIdentifierParser
+        arguments   <- many (some spaceParser *> typeReferenceParser)
         return (constructor, arguments)
   in
     do
-      _              <- accept "data"
-      _              <- some spaceParser
-      typeIdentifier <- typeIdentifierParser
-      _              <- many spaceParser
-      constructors   <-
+      _                    <- accept "data"
+      _                    <- some spaceParser
+      typeIdentifier       <- upperIdentifierParser
+      parameterIdentifiers <- many (some spaceParser *> lowerIdentifierParser)
+      _                    <- many spaceParser
+      constructors         <-
         (do
             _           <- accept "="
             _           <- many spaceParser
@@ -188,7 +213,8 @@ dataDefinitionParser =
             return $ constructor : rest
           )
           <|> success []
-      return $ DataType typeIdentifier $ Map.fromList constructors
+      return $ DataType typeIdentifier parameterIdentifiers $ Map.fromList
+        constructors
 
 type TypeSystem identifier value = [DataType identifier value]
 typeSystemParser :: Parser String [String] (TypeSystem String String)
@@ -256,40 +282,19 @@ parseExpression =
               [Neg, Not]
         <*  many spaceParser
         <*> expressionParser
-    lIdentifierParser = do
-      initial <- headParser
-      unless (isLower initial || initial == '_')
-        $ failure ["expected a lower character or underscore"]
-      rest <- many $ do
-        subsequent <- headParser
-        guard $ isAlphaNum subsequent
-        return subsequent
-      let identifier = initial : rest
-      guardNotReserved identifier
-      return identifier
-    rIdentifierParser = do
-      initial <- headParser
-      unless (isAlpha initial || initial == '_')
-        $ failure ["expected a lower character or underscore"]
-      rest <- many $ do
-        subsequent <- headParser
-        guard $ isAlphaNum subsequent
-        return subsequent
-      let identifier = initial : rest
-      guardNotReserved identifier
-      return identifier
+    rIdentifierParser = lowerIdentifierParser <|> upperIdentifierParser
     patternParser =
       VariablePattern
-        <$> lIdentifierParser
+        <$> lowerIdentifierParser
         <|> ConstructorPattern
-        <$> typeIdentifierParser
+        <$> upperIdentifierParser
         <*> pure []
         <|> (bracketed $ spaced headPatternParser)
     headPatternParser =
       VariablePattern
-        <$> lIdentifierParser
+        <$> lowerIdentifierParser
         <|> ConstructorPattern
-        <$> typeIdentifierParser
+        <$> upperIdentifierParser
         <*> many (some spaceParser *> patternParser)
         <|> (bracketed $ spaced headPatternParser)
     letParser = do
@@ -304,7 +309,7 @@ parseExpression =
                 _             <- many $ spaceParser
                 typeReference <- headTypeReferenceParser
                 return $ (parameter, typeReference)
-          identifier <- lIdentifierParser
+          identifier <- lowerIdentifierParser
           patterns   <-
             many $ some spaceParser *> (bracketed $ spaced parameterParser)
           return
@@ -368,7 +373,6 @@ parseExpression =
       , (LAssoc, [(accept "+", BinOp Sum), (accept "-", BinOp Minus)])
       , (LAssoc, [(accept "*", BinOp Mul), (accept "/", BinOp Div)])
       , (RAssoc, [(accept "^", BinOp Pow)])
-      , (LAssoc, [(some spaceParser, Application)])
       ]
       headTermParser
   in
@@ -406,7 +410,7 @@ applyPattern
   -> Maybe (Map variable (TypeReference (Fix (DataType identifier))))
 applyPattern (VariablePattern variable) typeReference =
   Just $ Map.singleton variable typeReference
-applyPattern (ConstructorPattern identifier patterns) (TypeReference (Fix (DataType _ constructors)))
+applyPattern (ConstructorPattern identifier patterns) (TypeReference (Fix (DataType typeParameters _ constructors)))
   | Just parameters <- Map.lookup identifier constructors
   , length parameters == length patterns
   , Just envs <- sequenceA $ zipWith applyPattern patterns parameters
@@ -417,7 +421,10 @@ resolveTypeReference typeSystem = resolve where
   resolve (TypeReference identifier) =
     TypeReference
       .   Fix
-      <$> (find (\(DataType dataType _) -> dataType == identifier) typeSystem)
+      <$> (find
+            (\(DataType dataType typeParameters _) -> dataType == identifier)
+            typeSystem
+          )
   resolve (left :-> right) = (:->) <$> resolve left <*> resolve right
   resolve (left :@> right) = (:@>) <$> resolve left <*> resolve right
 
@@ -493,19 +500,24 @@ infer0 typeSystem expression = do
         ((.) `on` extractingIdentifiers) left right
       unresolvedIdentifiers =
         (nub $ foldr extractingIdentifiers [] $ foldr
-            (\(DataType _ constructors) -> \prev -> foldr (++) prev constructors)
+            (\(DataType _ typeParameters constructors) ->
+              \prev -> foldr (++) prev constructors
+            )
             []
             extendedTypeSystem
           )
-          \\ map (\(DataType identifier _) -> identifier) extendedTypeSystem
+          \\ map (\(DataType identifier typeParameters _) -> identifier)
+                 extendedTypeSystem
   unless (null unresolvedIdentifiers) $ Nothing
   let resolve (TypeReference identifier) =
         TypeReference $ Fix $ (Map.!) indexedResolvedTypeSystem identifier
       resolve (left :-> right) = (resolve left :-> resolve right)
       resolve (left :@> right) = (resolve left :@> resolve right)
       indexedResolvedTypeSystem = Map.fromList $ map
-        (\(DataType identifier constructors) ->
-          (identifier, DataType identifier $ (map resolve) <$> constructors)
+        (\(DataType identifier typeParameters constructors) ->
+          ( identifier
+          , DataType identifier typeParameters $ (map resolve) <$> constructors
+          )
         )
         extendedTypeSystem
       resolvedTypeSystem = foldr (:) [] indexedResolvedTypeSystem
@@ -513,7 +525,7 @@ infer0 typeSystem expression = do
   infer
     resolvedTypeSystem
     (Map.unions $ map
-      (\dataType@(DataType _ constructors) ->
+      (\dataType@(DataType _ typeParameters constructors) ->
         fmap (foldr (:->) (TypeReference $ Fix dataType)) constructors
       )
       resolvedTypeSystem
