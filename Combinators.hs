@@ -13,85 +13,10 @@ import           Data.List                      ( groupBy )
 -- Parsing result is either an error message or some payload and a suffix of the input which is yet to be parsed    
 newtype Parser str err ok = Parser { runParser :: str -> Either err (str, ok) }
 
-data Assoc = LAssoc -- left associativity
-           | RAssoc -- right associativity
-           | NAssoc -- not associative
-
--- General parser combinator for expressions                      
--- Binary operators are listed in the order of precedence (from lower to higher)
--- Binary operators on the same level of precedence have the same associativity
--- Binary operator is specified with a parser for the operator itself and a semantic function to apply to the operands
-expression
-    :: Alternative err
-    => [(Assoc, [(Parser String (err String) b, a -> a -> a)])]
-    -> Parser String (err String) a
-    -> Parser String (err String) a
-expression associatedOperators primaryParser =
-    let
-        emptyStack = repeat Nothing
-        withStack stack = do
-            primary         <- primaryParser
-            valueOrNewStack <- foldr
-                (\((assoc, operators), prevOperator) higherPriorityParser -> do
-                    valueOrNewStack <- higherPriorityParser
-                    case valueOrNewStack of
-                        Left higherOperator -> do
-                            let leftPrimary = higherOperator primary
-                            operatorConstructor <- foldr
-                                (\(parser, constructor) ->
-                                    ((  spaced parser
-                                     *> success (Right constructor)
-                                     ) <|>
-                                    )
-                                )
-                                (success $ Left $ maybe higherOperator
-                                                        (. higherOperator)
-                                                        prevOperator
-                                )
-                                operators
-                            traverse
-                                (\operator ->
-                                    ((: emptyStack) . Just)
-                                        <$> maybe
-                                                (return $ operator leftPrimary)
-                                                (\prevOperator -> case assoc of
-                                                    LAssoc ->
-                                                        return
-                                                            $ operator
-                                                            $ prevOperator
-                                                                  leftPrimary
-                                                    NAssoc ->
-                                                        failure
-                                                            $ pure
-                                                                  "non-associative operator"
-                                                    RAssoc ->
-                                                        return
-                                                            $ prevOperator
-                                                            . operator
-                                                                  leftPrimary
-                                                )
-                                                prevOperator
-                                )
-                                operatorConstructor
-                        Right newStack ->
-                            return $ Right $ prevOperator : newStack
-                )
-                (pure $ Left id)
-                (zip associatedOperators stack)
-            case valueOrNewStack of
-                Left  constructor -> return $ constructor primary
-                Right newStack    -> withStack newStack
-        space = Parser $ \case
-            symbol : rest | isSpace symbol -> Right (rest, symbol)
-            _                              -> Left empty
-        spaced parser = many space *> parser <* many space
-    in
-        withStack emptyStack
-
-eofParser :: Parser String [String] ()
+eofParser :: (Alternative error, TokenContainer tokenContainer Char) => Parser [tokenContainer] (error String) ()
 eofParser = Parser $ \case
-    ""   -> Right ("", ())
-    rest -> Left ["Remaining input: " ++ rest]
+    tokens | null tokens   -> Right (tokens, ())
+    rest -> Left $ pure $ "Remaining input: " ++ map getToken rest
 
 runParserUntilEof :: Parser String [String] ok -> String -> Either [String] ok
 runParserUntilEof parser input = snd <$> runParser (parser <* eofParser) input
